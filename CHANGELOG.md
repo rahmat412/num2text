@@ -1,4 +1,9 @@
-## 0.0.1 - 2025-18-04
+## 0.0.2
+
+- fix: Resolved pub.dev static analysis issues.
+- chore: Improved overall code health and formatting based on linter suggestions.
+
+## 0.0.1
 
 - **Initial release of the `num2text` library.**
 - Core functionality for converting numbers (`int`, `double`, `BigInt`, `String`, `Decimal`) to words.
