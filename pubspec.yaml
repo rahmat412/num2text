@@ -1,0 +1,16 @@
+name: num2text
+description: Number-to-words in 69 languages for Dart. Supports int, double, BigInt, Decimal, and numeric strings. Includes currency, year formatting, and locale-specific options.
+version: 0.0.1
+repository: https://github.com/vemines/num2text
+homepage: https://github.com/vemines/num2text
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  decimal: ^3.2.1
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
