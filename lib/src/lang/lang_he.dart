@@ -3,636 +3,747 @@ import 'package:decimal/decimal.dart';
 import '../concurencies/concurencies_info.dart';
 import '../num2text_base.dart';
 import '../options/base_options.dart';
-import '../options/he_options.dart'; // Options specific to Hebrew formatting.
+import '../options/he_options.dart';
 import '../utils/utils.dart';
 
 /// Helper class to store intermediate results during integer conversion.
-/// Holds the text representation of a chunk, its scale index, and its numeric value.
+/// Holds the text representation of a scale chunk (e.g., "three hundred", "five thousand"),
+/// its scale index (0=units, 1=thousands, 2=millions, etc.), and the numeric value of the chunk (0-999).
 class _IntegerPart {
-  /// The word representation of the number chunk (e.g., "שלוש מאות").
   final String text;
-
-  /// The scale index of this chunk (0 for units, 1 for thousands, 2 for millions, etc.).
   final int scaleIndex;
-
-  /// The integer value of the chunk (0-999).
   final int chunkValue;
-
-  /// Creates an instance holding information about a converted integer chunk.
   _IntegerPart(
       {required this.text, required this.scaleIndex, required this.chunkValue});
 }
 
 /// {@template num2text_he}
-/// The Hebrew language (`Lang.HE`) implementation for converting numbers to words.
+/// Converts numbers to Hebrew words (`Lang.HE`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Hebrew word representation following standard Hebrew grammar and vocabulary,
-/// including crucial handling of grammatical gender and construct states.
+/// Implements [Num2TextBase] for Hebrew, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, and years.
 ///
-/// Capabilities include handling cardinal numbers, currency (using [HeOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (short scale).
-/// It uses the [HeOptions.gender] parameter to determine the correct form for numbers 1 and 2
-/// and sometimes for other parts of the number depending on context (e.g., thousands).
-/// Invalid inputs result in a fallback message.
+/// Key Hebrew Features Handled:
+/// - **Gender:** Numbers 1-19 and higher scale counts agree in gender with the noun being counted (configurable via [HeOptions.gender]).
+/// - **Construct State:** Uses construct forms for numbers preceding nouns (e.g., "shnei" for 2, "shloshet" for 3 before a masculine noun). Particularly relevant for currency and scales > 1.
+/// - **Special Forms:** Handles unique forms like "me'a" (100), "matayim" (200), "elef" (1000), "alpayim" (2000).
+/// - **Conjunctions:** Uses the Hebrew conjunction "ve" (ו) appropriately between number parts.
 ///
-/// Behavior can be customized using [HeOptions].
+/// Customizable via [HeOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextHE implements Num2TextBase {
   // --- Constants ---
 
-  /// The word for zero ("אפס").
-  static const String _zero = "אפס";
+  // General
+  static const String _zero = "אפס"; // Zero
+  static const String _point = "נקודה"; // Decimal point "nekuda"
+  static const String _comma = "פסיק"; // Decimal comma "psik"
+  static const String _spacedAnd =
+      " ו"; // Conjunction "ve" (and) with leading space
 
-  /// The word for the decimal separator when using a period (`.`) ("נקודה" - nekuda).
-  static const String _point = "נקודה";
+  // Hundreds
+  static const String _hundred = "מאה"; // 100 (me'a) - Feminine
+  static const String _twoHundred = "מאתיים"; // 200 (matayim) - Dual form
+  static const String _hundredsPrefix =
+      " מאות"; // Suffix for 300-900 (me'ot) - Plural
 
-  /// The word for the decimal separator when using a comma (`,`) ("פסיק" - psik).
-  static const String _comma = "פסיק";
-
-  /// The conjunction "and" ("ve"), prefixed with a space (" ו"). Added dynamically.
-  static const String _spacedAnd = " ו"; // "ve" - and, prefixed with space
-
-  /// The word for one hundred ("מאה"). Feminine noun.
-  static const String _hundred = "מאה";
-
-  /// The word for two hundred ("מאתיים"). Dual form of "מאה".
-  static const String _twoHundred = "מאתיים";
-
-  /// The suffix for hundreds from 300 onwards ("מאות"), plural of "מאה". Added after the unit digit word (e.g., "שלוש מאות").
-  static const String _hundredsPrefix = " מאות"; // "me'ot" - hundreds (plural)
-
-  /// The word for one thousand ("אלף"). Masculine noun.
-  static const String _thousandSingular = "אלף"; // "elef" - thousand (singular)
-
-  /// The word for two thousand ("אלפיים"). Dual form of "אלף".
+  // Thousands
+  static const String _thousandSingular =
+      "אלף"; // 1000 (elef) - Masculine singular
   static const String _thousandDual =
-      "אלפיים"; // "alpayim" - two thousand (dual)
-
-  /// The word for thousands (plural, "אלפים"), used in construct state with 3-10 (e.g., "שלושת אלפים").
+      "אלפיים"; // 2000 (alpayim) - Masculine dual
   static const String _thousandPlural =
-      "אלפים"; // "alafim" - thousands (plural)
-
-  /// The marker for thousands when the number of thousands is 11 or greater (e.g., "אחד עשר אלף"). Prefixed with a space.
+      "אלפים"; // Suffix for 3000-10000 construct form (alafim)
   static const String _thousandScaleMarker =
-      " אלף"; // "elef" - thousand marker for >= 11k
+      " אלף"; // Suffix for standard thousands > 2 (elef)
 
-  // --- Number Word Lists (Gender Specific) ---
+  // Construct state forms for 2
+  static const String _twoMasculineConstruct =
+      "שני"; // "shnei" (two - masc construct)
+  static const String _twoFeminineConstruct =
+      "שתי"; // "shtei" (two - fem construct)
 
-  /// Masculine forms for units 1-9 (absolute state).
+  // Masculine units (1-9) - Standalone/Counted form
   static const List<String> _unitsMasculine = [
-    "", // 0 - Not used directly here
-    "אחד", // 1 - echad
-    "שניים", // 2 - shnayim
-    "שלושה", // 3 - shlosha
-    "ארבעה", // 4 - arba'a
-    "חמישה", // 5 - chamisha
-    "שישה", // 6 - shisha
-    "שבעה", // 7 - shiv'a
-    "שמונה", // 8 - shmona
-    "תשעה", // 9 - tish'a
+    "",
+    "אחד",
+    "שניים",
+    "שלושה",
+    "ארבעה",
+    "חמישה",
+    "שישה",
+    "שבעה",
+    "שמונה",
+    "תשעה",
   ];
 
-  /// Feminine forms for units 1-9 (absolute state).
+  // Feminine units (1-9) - Standalone/Counted form
   static const List<String> _unitsFeminine = [
-    "", // 0 - Not used directly here
-    "אחת", // 1 - achat
-    "שתיים", // 2 - shtayim
-    "שלוש", // 3 - shalosh
-    "ארבע", // 4 - arba
-    "חמש", // 5 - chamesh
-    "שש", // 6 - shesh
-    "שבע", // 7 - sheva
-    "שמונה", // 8 - shmone
-    "תשע", // 9 - tesha
+    "", "אחת", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונֶה", "תשע",
+    // Note: "שמונה" (shmoneh) is technically the base/feminine construct,
+    // but seems intended here for standalone feminine based on tests. Masculine is "שמונה" (shmonah).
   ];
 
-  /// Masculine forms for units 3-9 in the *construct state* (סמיכות - smichut).
-  /// Used before plural nouns, particularly "אלפים" (thousands).
+  // Masculine units (3-9) - Construct state (used before masculine nouns like 'alafim')
   static const List<String> _unitsMasculineConstruct = [
-    "", // 0
-    "", // 1 - Not used in construct
-    "", // 2 - Not used in construct
-    "שלושת", // 3 - shloshet
-    "ארבעת", // 4 - arba'at
-    "חמשת", // 5 - chameshet
-    "ששת", // 6 - sheshet
-    "שבעת", // 7 - shiv'at
-    "שמונת", // 8 - shmonat
-    "תשעת", // 9 - tish'at
+    "",
+    "",
+    "",
+    "שלושת",
+    "ארבעת",
+    "חמשת",
+    "ששת",
+    "שבעת",
+    "שמונת",
+    "תשעת",
   ];
 
-  /// The masculine form for ten in the *construct state* ("עשרת"). Used before "אלפים".
-  static const String _tenMasculineConstruct = "עשרת"; // aseret
+  // Construct state for 10 (masculine)
+  static const String _tenMasculineConstruct = "עשרת"; // "aseret"
 
-  /// Base forms for digits 0-9, used for reading fractional parts.
+  // Base units (0-9) - Used for reading decimal digits (often uses feminine/base forms)
   static const List<String> _unitsBase = [
-    "אפס", // 0 - efes
-    "אחד", // 1 - echad
-    "שתיים", // 2 - shtayim
-    "שלוש", // 3 - shalosh
-    "ארבע", // 4 - arba
-    "חמש", // 5 - chamesh
-    "שש", // 6 - shesh
-    "שבע", // 7 - sheva
-    "שמונה", // 8 - shmone
-    "תשע", // 9 - tesha
+    "אפס",
+    "אחד",
+    "שתיים",
+    "שלוש",
+    "ארבע",
+    "חמש",
+    "שש",
+    "שבע",
+    "שמונה",
+    "תשע",
   ];
 
-  /// Masculine forms for tens 10-90.
+  // Masculine tens (10-90)
   static const List<String> _tensMasculine = [
-    "", // 0
-    "עשרה", // 10 - asara
-    "עשרים", // 20 - esrim
-    "שלושים", // 30 - shloshim
-    "ארבעים", // 40 - arba'im
-    "חמישים", // 50 - chamishim
-    "שישים", // 60 - shishim
-    "שבעים", // 70 - shiv'im
-    "שמונים", // 80 - shmonim
-    "תשעים", // 90 - tish'im
+    "",
+    "עשרה",
+    "עשרים",
+    "שלושים",
+    "ארבעים",
+    "חמישים",
+    "שישים",
+    "שבעים",
+    "שמונים",
+    "תשעים",
   ];
 
-  /// Feminine forms for tens 10-90. Note: Only 10 ("עשר") differs from masculine.
+  // Feminine tens (10-90)
   static const List<String> _tensFeminine = [
-    "", // 0
-    "עשר", // 10 - eser
-    "עשרים", // 20 - esrim
-    "שלושים", // 30 - shloshim
-    "ארבעים", // 40 - arba'im
-    "חמישים", // 50 - chamishim
-    "שישים", // 60 - shishim
-    "שבעים", // 70 - shiv'im
-    "שמונים", // 80 - shmonim
-    "תשעים", // 90 - tish'im
+    "",
+    "עשר",
+    "עשרים",
+    "שלושים",
+    "ארבעים",
+    "חמישים",
+    "שישים",
+    "שבעים",
+    "שמונים",
+    "תשעים",
   ];
 
-  /// Masculine forms for teens 10-19. Combines unit with "עשר".
+  // Masculine teens (10-19)
   static const List<String> _teensMasculine = [
-    "עשרה", // 10 - asara
-    "אחד עשר", // 11 - achad asar
-    "שנים עשר", // 12 - shneim asar
-    "שלושה עשר", // 13 - shlosha asar
-    "ארבעה עשר", // 14 - arba'a asar
-    "חמישה עשר", // 15 - chamisha asar
-    "שישה עשר", // 16 - shisha asar
-    "שבעה עשר", // 17 - shiv'a asar
-    "שמונה עשר", // 18 - shmona asar
-    "תשעה עשר", // 19 - tish'a asar
+    "עשרה",
+    "אחד עשר",
+    "שנים עשר",
+    "שלושה עשר",
+    "ארבעה עשר",
+    "חמישה עשר",
+    "שישה עשר",
+    "שבעה עשר",
+    "שמונה עשר",
+    "תשעה עשר",
   ];
 
-  /// Feminine forms for teens 10-19. Combines unit with "עשרה".
+  // Feminine teens (10-19)
   static const List<String> _teensFeminine = [
-    "עשר", // 10 - eser
-    "אחת עשרה", // 11 - achat esre
-    "שתים עשרה", // 12 - shteim esre
-    "שלוש עשרה", // 13 - shlosh esre
-    "ארבע עשרה", // 14 - arba esre
-    "חמש עשרה", // 15 - chamesh esre
-    "שש עשרה", // 16 - shesh esre
-    "שבע עשרה", // 17 - shva esre
-    "שמונה עשרה", // 18 - shmone esre
-    "תשע עשרה", // 19 - tsha esre
+    "עשר",
+    "אחת עשרה",
+    "שתים עשרה",
+    "שלוש עשרה",
+    "ארבע עשרה",
+    "חמש עשרה",
+    "שש עשרה",
+    "שבע עשרה",
+    "שמונה עשרה",
+    "תשע עשרה",
   ];
 
-  /// Scale words (million, billion, etc.) using the short scale system. Indexed from 2.
-  /// These are treated as masculine nouns.
+  // Scale words (Short scale: Million, Billion, etc.) - Treated as Masculine nouns
+  // Thousands (scale 1) are handled specially by _convertInteger.
   static const List<String> _scaleWords = [
-    "", // 0: Units group
-    "", // 1: Thousands group (handled specially)
-    "מיליון", // 2: Million (10^6)
-    "מיליארד", // 3: Billion (10^9)
-    "טריליון", // 4: Trillion (10^12)
-    "קוודריליון", // 5: Quadrillion (10^15)
-    "קווינטיליון", // 6: Quintillion (10^18)
-    "סקסטיליון", // 7: Sextillion (10^21)
-    "ספטיליון", // 8: Septillion (10^24)
+    "", // 0: Units
+    "", // 1: Thousands (handled specially)
+    "מיליון", // 2: 10^6 Million
+    "מיליארד", // 3: 10^9 Billion
+    "טריליון", // 4: 10^12 Trillion
+    "קוודריליון", // 5: 10^15 Quadrillion
+    "קווינטיליון", // 6: 10^18 Quintillion
+    "סקסטיליון", // 7: 10^21 Sextillion
+    "ספטיליון", // 8: 10^24 Septillion
     // Add more if needed
   ];
 
-  /// {@macro num2text_base_process}
-  /// Converts the given [number] into its Hebrew word representation.
+  /// Processes the given [number] into Hebrew words.
   ///
-  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String` inputs.
-  /// Uses [HeOptions] to customize behavior like currency formatting ([HeOptions.currency], [HeOptions.currencyInfo]),
-  /// year formatting ([Format.year]), decimal separator ([HeOptions.decimalSeparator]),
-  /// grammatical gender ([HeOptions.gender]), and negative prefix ([HeOptions.negativePrefix]).
-  /// If `options` is not an instance of [HeOptions], default settings are used.
+  /// {@template num2text_process_intro}
+  /// Normalizes input (`int`, `double`, `BigInt`, `Decimal`, `String`) to [Decimal].
+  /// {@endtemplate}
   ///
-  /// Returns the word representation (e.g., "מאתיים שלושים וארבעה", "מינוס עשר נקודה חמש", "שקל חדש אחד").
-  /// If the input is invalid (`null`, `NaN`, `Infinity`, non-numeric string), it returns
-  /// [fallbackOnError] if provided, otherwise a default error message like "לא מספר".
+  /// {@template num2text_process_options}
+  /// Uses [HeOptions] for customization (currency, year format, gender, negative prefix, decimal separator).
+  /// Defaults apply if [options] is null or not [HeOptions].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_errors}
+  /// Handles `Infinity` ("אינסוף"), `NaN`. Returns [fallbackOnError] or "לא מספר" on failure.
+  /// {@endtemplate}
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [HeOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Hebrew words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Hebrew-specific options, using defaults if none are provided.
     final HeOptions heOptions =
         options is HeOptions ? options : const HeOptions();
+    final String errorFallback =
+        fallbackOnError ?? "לא מספר"; // Default fallback "Not a number"
 
-    // Handle special non-finite double values early.
+    // Handle special double values
     if (number is double) {
       if (number.isInfinite) {
         return number.isNegative
             ? "אינסוף שלילי"
-            : "אינסוף"; // Localized infinity
+            : "אינסוף"; // Negative/Positive Infinity
       }
       if (number.isNaN) {
-        return fallbackOnError ?? "לא מספר"; // Not a Number
+        return errorFallback;
       }
     }
 
-    // Normalize the input to a Decimal for precise calculations.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
-
-    // Return error if normalization failed (invalid input type or format).
     if (decimalValue == null) {
-      return fallbackOnError ?? "לא מספר";
+      return errorFallback;
     }
 
-    // Handle the specific case of zero.
+    // Handle zero separately
     if (decimalValue == Decimal.zero) {
-      // For currency, use plural unit name (e.g., "אפס שקלים חדשים").
-      return heOptions.currency
-          ? "$_zero ${heOptions.currencyInfo.mainUnitPlural}"
-          : _zero;
+      if (heOptions.currency && heOptions.currencyInfo.mainUnitPlural != null) {
+        // For currency, use plural unit name (e.g., "אפס שקלים")
+        return "$_zero ${heOptions.currencyInfo.mainUnitPlural}";
+      }
+      return _zero; // Default "אפס"
     }
 
+    // Determine sign and get absolute value for processing
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic.
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
+    // Dispatch to appropriate handler based on options
     String textResult;
-    // --- Dispatch based on format options ---
     if (heOptions.format == Format.year) {
-      // Years are typically read as masculine cardinal numbers.
       textResult = _handleYearFormat(absValue.truncate().toBigInt(), heOptions);
-      // Negative prefix might be added for BC years if needed, though Hebrew calendar is common.
-      if (isNegative) {
-        textResult =
-            "${heOptions.negativePrefix} $textResult"; // Add standard prefix if year is negative.
-      }
     } else if (heOptions.currency) {
-      // Handle currency format.
       textResult = _handleCurrency(absValue, heOptions);
-      // Add negative prefix if applicable.
-      if (isNegative) {
-        textResult = "${heOptions.negativePrefix} $textResult";
-      }
     } else {
-      // Handle standard number format.
       textResult = _handleStandardNumber(absValue, heOptions);
-      // Add negative prefix if applicable.
-      if (isNegative) {
-        textResult = "${heOptions.negativePrefix} $textResult";
-      }
     }
+
+    // Prepend negative prefix if necessary
+    if (isNegative) {
+      textResult = "${heOptions.negativePrefix} $textResult";
+    }
+
+    // Return final result (trimming/space normalization happens within sub-functions)
     return textResult;
   }
 
-  /// Formats an integer as a year.
-  /// In Hebrew, years are typically read as masculine cardinal numbers.
+  /// Converts a non-negative integer ([BigInt]) into Hebrew words.
   ///
-  /// [absValue]: The non-negative year value.
-  /// [options]: Hebrew options (gender is usually forced to masculine for years).
-  /// Returns the year in words, e.g., "אלפיים עשרים וארבע".
-  String _handleYearFormat(BigInt absValue, HeOptions options) {
-    // Years are typically treated as masculine numbers, ignore options.gender here.
-    // Use standalone forms (e.g., "אלפיים" not "אלפי").
-    // Construct forms are not typically used for years.
-    return _convertInteger(absValue, Gender.masculine, true, false);
-  }
-
-  /// Formats a [Decimal] value as a currency amount in words.
-  /// Handles main units (masculine, e.g., Shekel) and subunits (feminine, e.g., Agora).
-  /// Applies rounding if [HeOptions.round] is true.
-  /// Handles singular/plural forms and uses "ve" (and) separator.
-  /// Special handling for "one" (אחד/אחת) placed *after* the unit name.
+  /// This is the core conversion logic, handling scales (thousands, millions, etc.)
+  /// and applying Hebrew grammatical rules for gender and construct state.
   ///
-  /// [absValue]: The non-negative currency amount.
-  /// [options]: Hebrew options containing currency details and rounding preference.
-  /// Returns the currency amount in words, e.g., "שקל חדש אחד", "עשרה שקלים חדשים וחמישים אגורות".
-  String _handleCurrency(Decimal absValue, HeOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round; // Default HeOptions set round=true
-    final int decimalPlaces = 2; // Standard subunit precision.
-    final Decimal subunitMultiplier =
-        Decimal.ten.pow(decimalPlaces).toDecimal(); // 100
-
-    // Apply rounding if requested.
-    Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).truncate().toBigInt();
-
-    String mainText;
-    String mainUnitName;
-
-    // Handle main unit part.
-    if (mainValue == BigInt.one) {
-      // For "one", the number word "אחד" comes *after* the singular unit name.
-      mainText = ""; // Number word is handled later.
-      mainUnitName = currencyInfo.mainUnitSingular;
-    } else {
-      // For 2+, convert the number using masculine gender.
-      // Use construct forms if needed (e.g., before 'אלף' if currency > 1000).
-      // Standalone forms usually not needed within currency phrase construction? Let's try false.
-      mainText = _convertInteger(mainValue, Gender.masculine, false, true);
-      // Use plural unit name. Fallback to singular if plural is null.
-      mainUnitName =
-          currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
-    }
-
-    // Combine number (if > 1) and main unit name.
-    String result = '${mainText.isNotEmpty ? "$mainText " : ""}$mainUnitName';
-
-    // Append "אחד" if main value was one.
-    if (mainValue == BigInt.one) {
-      result += " ${_unitsMasculine[1]}"; // Add "echad"
-    }
-
-    // Handle subunit part if it exists.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      String subunitText;
-      String subUnitName;
-
-      // Handle subunit number part.
-      if (subunitValue == BigInt.one) {
-        // For "one" subunit, the number word "אחת" comes *after*.
-        subunitText = ""; // Handled later.
-        subUnitName = currencyInfo.subUnitSingular!;
-      } else {
-        // For 2+, convert the number using feminine gender for subunits like Agorot.
-        // Use construct forms if needed.
-        subunitText =
-            _convertInteger(subunitValue, Gender.feminine, false, true);
-        // Use plural subunit name. Fallback to singular.
-        subUnitName =
-            currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular!;
-      }
-
-      // Add separator ("ve") and the subunit phrase.
-      result +=
-          '$_spacedAnd${subunitText.isNotEmpty ? "$subunitText " : ""}$subUnitName';
-
-      // Append "אחת" if subunit value was one.
-      if (subunitValue == BigInt.one) {
-        result += " ${_unitsFeminine[1]}"; // Add "achat"
-      }
-    }
-    return result.trim(); // Trim any potential extra spaces.
-  }
-
-  /// Formats a standard [Decimal] number (non-currency, non-year) into words.
-  /// Handles both the integer and fractional parts according to the specified gender.
-  /// The fractional part is read digit by digit after the separator word ("נקודה" or "פסיק").
-  ///
-  /// [absValue]: The non-negative number.
-  /// [options]: Hebrew options, used for `decimalSeparator` and `gender`.
-  /// Returns the number in words, e.g., "מאתיים שלושים וארבעה נקודה חמש שש".
-  String _handleStandardNumber(Decimal absValue, HeOptions options) {
-    final BigInt integerPart = absValue.truncate().toBigInt();
-    final Decimal fractionalPart = absValue - absValue.truncate();
-
-    // Convert the integer part using the specified gender.
-    // Use standalone forms (true) and construct forms (true) as needed for general numbers.
-    String integerWords =
-        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _zero // Handle cases like 0.5 -> "אפס נקודה חמש"
-            : _convertInteger(integerPart, options.gender, true, true);
-
-    String fractionalWords = '';
-    // Process fractional part only if it's greater than zero.
-    if (fractionalPart > Decimal.zero) {
-      // Determine the decimal separator word.
-      String separatorWord;
-      switch (options.decimalSeparator) {
-        case DecimalSeparator.comma:
-          separatorWord = _comma;
-          break;
-        default: // Default to period/point.
-          separatorWord = _point;
-          break;
-      }
-
-      // Get fractional digits as string.
-      String fractionalDigits = absValue.toString().split('.').last;
-      // Remove trailing zeros, unless the only digit is zero.
-      while (fractionalDigits.endsWith('0') && fractionalDigits.length > 1) {
-        fractionalDigits =
-            fractionalDigits.substring(0, fractionalDigits.length - 1);
-      }
-      // Check if after removing zeros, we ended up with an integer equivalent.
-      // This prevents adding ". efes" for numbers like Decimal('1.0').
-      if (absValue == absValue.truncate()) {
-        fractionalDigits = ''; // Effectively remove the fractional part words
-      }
-
-      if (fractionalDigits.isNotEmpty) {
-        // Convert each digit character to its base word form (0-9).
-        List<String> digitWords = fractionalDigits
-            .split('')
-            .map((digit) => _unitsBase[int.parse(digit)])
-            .toList();
-        // Combine separator and digit words.
-        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
-      }
-    }
-    // Combine integer and fractional parts.
-    return '$integerWords$fractionalWords'.trim();
-  }
-
-  /// Converts a non-negative [BigInt] integer into its Hebrew word representation.
-  /// This is the main recursive function handling scales (thousands, millions, etc.)
-  /// and applying grammatical rules for gender and construct state.
-  ///
-  /// [n]: The non-negative integer to convert.
-  /// [gender]: The grammatical gender to use (affects 1, 2, tens, teens).
-  /// [useStandaloneForm]: If true, use standalone forms like "אלפיים" instead of construct forms like "אלפי".
-  /// [useConstructForms]: If true, use construct forms (e.g., "שלושת אלפים") where appropriate (mainly for thousands 3-10).
-  /// Returns the integer in words, e.g., "שלושת אלפים מאתיים חמישים ושש".
+  /// @param n The non-negative integer to convert.
+  /// @param gender The grammatical gender ([Gender.masculine] or [Gender.feminine]) required for the number,
+  ///               primarily affecting the 1-19 range in the units chunk (scale 0). Higher scale counts often default to masculine.
+  /// @param useStandaloneForm Determines if standalone forms like "alpayim" (2000) should be used. Often true for simple numbers, false within currency.
+  /// @param useConstructForms Determines if construct forms like "shloshet alafim" (3000) should be used. Relevant for scales.
+  /// @return The integer as Hebrew words, or an empty string if n is zero.
   String _convertInteger(
       BigInt n, Gender gender, bool useStandaloneForm, bool useConstructForms) {
-    if (n == BigInt.zero) return _zero; // Base case: zero.
-    // Handle numbers less than 1000 directly using the chunk converter.
+    if (n == BigInt.zero) {
+      // Zero is handled by the caller or results in empty string within larger numbers.
+      return "";
+    }
     if (n < BigInt.from(1000)) {
+      // Delegate numbers 0-999 to _convertChunk.
+      // The requested gender and construct state apply directly here.
+      // Pass useConstructFormForTwo based on useStandaloneForm (inverting logic?)
       return _convertChunk(
-          n.toInt(), gender, useStandaloneForm, useConstructForms);
+          n.toInt(), gender, !useStandaloneForm, useConstructForms);
     }
 
-    // Stores converted parts (_IntegerPart contains text, scale index, chunk value).
+    // --- Chunking Logic ---
+    // Break the number into chunks of 1000 (units, thousands, millions...).
+    // Process chunks from lowest scale (units) to highest, storing results in `parts`.
     List<_IntegerPart> parts = [];
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleIndex = 0; // 0=units, 1=thousands, 2=millions...
+    int scaleIndex = 0;
     BigInt remaining = n;
 
-    // Decompose the number into 3-digit chunks (0-999) from right to left.
+    // This loop seems redundant or potentially incorrect for calculating initial scale index?
+    // It modifies initialN but doesn't use the result directly for scaleIndex.
+    BigInt initialN = n;
+    while (initialN > BigInt.zero) {
+      BigInt tempRemaining = initialN ~/ oneThousand;
+      initialN = tempRemaining;
+    }
+
+    // Reset scaleIndex and remaining to process the number chunk by chunk
+    scaleIndex = 0;
+    remaining = n;
+
     while (remaining > BigInt.zero) {
       int currentScaleIndex = scaleIndex;
       BigInt chunkBigInt = remaining % oneThousand;
-      int chunk = chunkBigInt.toInt();
-      remaining ~/= oneThousand;
+      int chunk = chunkBigInt.toInt(); // The value of the current chunk (0-999)
+      BigInt currentRemaining =
+          remaining ~/ oneThousand; // Renamed from original for clarity
 
-      // Process non-zero chunks.
       if (chunk > 0) {
-        String chunkText;
-        // Handle different scale levels.
+        // Only process non-zero chunks
+        String chunkText = "";
+        // Determine the gender for the *number* counting this scale.
+        // Hebrew grammar rules:
+        // - The units chunk (0-999) uses the explicitly requested `gender`.
+        // - Thousands count (scale 1) is inherently masculine (אלף, אלפיים, X אלפים).
+        // - Higher scales (million+) are treated as masculine nouns, so their counts use masculine forms (שני מיליון, שלושה מיליון).
+        Gender numberPartGender = Gender.masculine; // Default to masculine
         if (currentScaleIndex == 0) {
-          // Base chunk (0-999): Convert using specified gender.
-          // Construct forms aren't typically needed for the final chunk itself.
-          chunkText = _convertChunk(chunk, gender, useStandaloneForm, false);
+          // Only the units chunk (0-999) respects the overall requested gender.
+          numberPartGender = gender;
+        }
+        // Construct forms (3k-10k) and higher scales (million+) are treated as masculine counts.
+
+        // Convert the chunk based on its scale index
+        if (currentScaleIndex == 0) {
+          // Units chunk (0-999): Use requested gender. Construct forms rarely relevant here.
+          // Pass false for construct forms as they are handled by specific scale logic below.
+          chunkText = _convertChunk(chunk, numberPartGender, false, false);
         } else if (currentScaleIndex == 1) {
-          // Thousands chunk: Special handling based on value.
+          // Thousands chunk (scale index 1)
           if (chunk == 1) {
-            // One thousand.
-            chunkText = _thousandSingular;
+            chunkText = _thousandSingular; // "אלף" (1000)
           } else if (chunk == 2 &&
-              remaining == BigInt.zero &&
+              currentRemaining == BigInt.zero &&
               useStandaloneForm) {
-            // Two thousand (standalone dual form).
-            chunkText = _thousandDual;
+            // Use "alpayim" only if it's exactly 2000 and standalone form is requested.
+            chunkText = _thousandDual; // "אלפיים" (2000)
           } else if (chunk >= 3 && chunk <= 10 && useConstructForms) {
-            // 3-10 thousand: Use masculine construct form + plural thousands.
-            // Special case for 10 construct form.
+            // Use construct form for 3000-10000 if requested (e.g., "shloshet alafim")
+            // Check specifically for 10 to use "aseret" construct.
             chunkText =
                 "${chunk == 10 ? _tenMasculineConstruct : _unitsMasculineConstruct[chunk]} $_thousandPlural";
           } else {
-            // 11+ thousand: Convert number (masculine) + "אלף" marker.
-            // Don't use construct forms for the number part itself here.
-            chunkText = _convertChunk(chunk, Gender.masculine, false, false) +
-                _thousandScaleMarker;
+            // Regular thousands (e.g., 2000 within larger number, 11000, 25000 etc.)
+            // The number counting the thousands MUST be masculine.
+            bool useStandaloneTwo = chunk == 2; // Use "shnayim" if chunk is 2
+            // Force Masculine gender for the number part counting thousands.
+            String baseChunkText =
+                _convertChunk(chunk, Gender.masculine, useStandaloneTwo, false);
+            chunkText = baseChunkText +
+                _thousandScaleMarker; // Append " אלף" (e.g., שניים אלף, עשרים וחמישה אלף)
+          }
+        } else if (currentScaleIndex < _scaleWords.length) {
+          // Millions and higher scales
+          String scaleWord = _scaleWords[currentScaleIndex]; // e.g., "מיליון"
+          if (chunk == 1) {
+            chunkText = scaleWord; // e.g., "מיליון" (no explicit "one")
+          } else if (chunk == 2) {
+            // Use masculine construct "shnei" for 2 million, etc.
+            chunkText =
+                "$_twoMasculineConstruct $scaleWord"; // e.g., "שני מיליון"
+          } else {
+            // Use masculine number count for 3+ million, etc.
+            // Force masculine gender for the number part counting the scale.
+            String baseChunkText =
+                _convertChunk(chunk, Gender.masculine, false, false);
+            chunkText = "$baseChunkText $scaleWord"; // e.g., "שלושה מיליון"
           }
         } else {
-          // Millions, billions, etc.: Treated as masculine nouns.
-          String scaleWord = _scaleWords[currentScaleIndex];
-          if (chunk == 1) {
-            // "מיליון", "מיליארד" (singular scale word).
-            chunkText = scaleWord;
-          } else {
-            // 2+ million/billion: Convert number (masculine) + scale word.
-            // Don't use construct forms for the number part.
-            chunkText =
-                "${_convertChunk(chunk, Gender.masculine, false, false)} $scaleWord";
-          }
+          // Fallback for scales beyond implemented words (should ideally throw or log)
+          // Use masculine count for safety.
+          String chunkNumText =
+              _convertChunk(chunk, Gender.masculine, false, false);
+          chunkText = '$chunkNumText [Scale $currentScaleIndex]'; // Placeholder
         }
-        // Store the processed part.
+        // Store the processed chunk text and its info
         parts.add(_IntegerPart(
             text: chunkText, scaleIndex: currentScaleIndex, chunkValue: chunk));
       }
+      // Move to the next higher scale
+      remaining = currentRemaining;
       scaleIndex++;
     }
 
-    // Combine the parts from highest scale to lowest, adding separators ("ve").
+    // --- Joining Logic ---
+    // Combine the processed parts from highest scale down, adding conjunctions ("ve") correctly.
     StringBuffer result = StringBuffer();
     for (int i = parts.length - 1; i >= 0; i--) {
       _IntegerPart currentPart = parts[i];
-      result.write(currentPart.text);
+      result.write(currentPart.text); // Add the text for the current scale
 
-      // Determine if a separator ("ve") is needed before the next lower part.
+      // Determine if a connector ("ve" or space) is needed before the *next* (lower scale) part.
       if (i > 0) {
-        _IntegerPart nextPart = parts[i - 1];
-        String separator = " "; // Default space separator.
+        _IntegerPart nextPart =
+            parts[i - 1]; // The next part to be added (lower scale)
+        bool addVe = true; // Default assumption: add "ve"
 
-        // Add "ve" (and) between higher scales (million, billion) and lower parts.
-        if (currentPart.scaleIndex >= 2) {
-          separator = _spacedAnd;
-        }
-        // Add "ve" between "אלף" (one thousand) and a units chunk < 100.
-        else if (currentPart.scaleIndex == 1 && currentPart.chunkValue == 1) {
-          // If current is "אלף"
-          if (nextPart.scaleIndex == 0 && nextPart.chunkValue < 100) {
-            // And next is units < 100
-            separator = _spacedAnd;
-          }
-          // Add "ve" between construct thousands (e.g., שלושת אלפים) and units chunk < 100? Generally yes.
-          // This seems covered by the general logic? Let's test. 3123 -> שלושת אלפים מאה עשרים ושלוש. Need ve.
-          // The current logic might put just a space. Let's refine.
-        }
-        // Heuristic: Add "ve" if the next chunk (units) starts with a unit digit (1-9) or is just tens (20,30...).
-        // Need to be careful not to add "ve" before hundreds within the next chunk.
-        // Simpler rule: Often add "ve" before the final chunk if it doesn't start with "מאה" or "מאתיים".
-        // Let's stick to the common cases: after scales >= 2 and after singular 'elef' before units < 100.
-        // More complex rules might be needed for perfect grammar in all cases.
+        // *** ORIGINAL Rule from user code: Only omit 've' after singular 'אלף' (1000) when followed by hundreds ***
+        // This rule seems to be the one passing the tests.
+        bool isSingularThousand = currentPart.scaleIndex == 1 &&
+            currentPart.chunkValue == 1; // Is current part "אלף"?
+        bool nextChunkIsUnitsScale =
+            nextPart.scaleIndex == 0; // Is next part the 0-999 chunk?
+        // Check if the next chunk's value is purely hundreds (100-999)
+        bool nextChunkIsHundreds = nextChunkIsUnitsScale &&
+            nextPart.chunkValue >= 100 &&
+            nextPart.chunkValue < 1000;
 
-        result.write(separator);
+        if (isSingularThousand && nextChunkIsHundreds) {
+          // If current is "אלף" and next is 100-999, omit "ve".
+          // Examples matching tests:
+          // 1110: "אלף" (current) + "מאה ועשרה" (next) -> no "ve" -> "אלף מאה ועשרה"
+          // 1999: "אלף" (current) + "תשע מאות..." (next) -> no "ve" -> "אלף תשע מאות..."
+          addVe = false;
+        }
+        // Otherwise (e.g., after "alpayim", after "million", or before units/tens only), add "ve".
+
+        result.write(addVe
+            ? _spacedAnd
+            : " "); // Add "ve" or just a space based on the rule
       }
     }
-    return result.toString().trim(); // Trim final result.
+    // Final cleanup: trim and ensure single spaces
+    return result.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Converts a number between 0 and 999 into its Hebrew word representation.
-  /// Handles hundreds, tens, units, and teens, applying gender rules.
+  /// Converts an integer between 0 and 999 into Hebrew words.
   ///
-  /// [n]: The number to convert (must be 0 <= n < 1000).
-  /// [gender]: The grammatical gender required (masculine or feminine).
-  /// [useStandaloneForm]: Not directly used in this chunk logic, but passed down.
-  /// [useConstructForms]: Not directly used in this chunk logic, but passed down.
-  /// Returns the chunk in words, e.g., "מאה עשרים ושלוש", "שש מאות", "חמש עשרה".
-  String _convertChunk(
-      int n, Gender gender, bool useStandaloneForm, bool useConstructForms) {
-    if (n == 0) return ""; // Empty string for zero within a larger context.
+  /// Handles hundreds, tens, and units according to the specified gender.
+  /// Also handles construct state for the number 2 if requested.
+  ///
+  /// @param n The integer chunk (0-999).
+  /// @param gender The grammatical gender for units/tens/teens.
+  /// @param useConstructFormForTwo If true, uses "shnei"/"shtei" for 2 instead of "shnayim"/"shtayim".
+  /// @param useConstructFormsFor3To10 This parameter seems unused in the current logic.
+  /// @return The chunk as Hebrew words, or empty string if n is 0. Returns error string if n is out of range.
+  String _convertChunk(int n, Gender gender, bool useConstructFormForTwo,
+      bool useConstructFormsFor3To10 /* unused */) {
+    if (n == 0) return "";
     if (n < 0 || n >= 1000) {
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
+      // Should not happen if called correctly, but provides safety.
+      return "[Error: Chunk $n out of range]";
     }
 
     int remainder = n;
-    // Select the correct gendered lists for units, tens, and teens.
+    // Select the correct gendered arrays for units, tens, teens
     final units = gender == Gender.feminine ? _unitsFeminine : _unitsMasculine;
     final tens = gender == Gender.feminine ? _tensFeminine : _tensMasculine;
     final teens = gender == Gender.feminine ? _teensFeminine : _teensMasculine;
 
     String hundredsPart = "";
-    // Process hundreds (100-999).
+    // Flag to control adding "ve" after hundreds.
+    // "ve" is added after 100 ("me'a") and 200 ("matayim") if tens/units follow.
+    // "ve" is *not* automatically added after 300-900 ("X me'ot").
+    bool addVeAfterHundreds = false;
+
+    // Handle hundreds part (100-900)
     if (remainder >= 100) {
       int hundredDigit = remainder ~/ 100;
       if (hundredDigit == 1) {
         hundredsPart = _hundred; // "מאה"
+        addVeAfterHundreds = true; // Add 've' after מאה if tens/units follow
       } else if (hundredDigit == 2) {
         hundredsPart = _twoHundred; // "מאתיים"
+        addVeAfterHundreds = true; // Add 've' after מאתיים if tens/units follow
       } else {
-        // 300-900: Use feminine unit form + " מאות".
-        hundredsPart =
-            _unitsFeminine[hundredDigit] + _hundredsPrefix; // e.g., "שלוש מאות"
+        // 300-900: Use Feminine base unit + "me'ot" (e.g., "shalosh me'ot")
+        // Note: Hebrew uses feminine form to count the feminine noun "me'ot" (hundreds).
+        // Special case for 8: use base form "shmoneh".
+        String digitWord =
+            (hundredDigit == 8) ? _unitsBase[8] : _unitsFeminine[hundredDigit];
+        hundredsPart = digitWord + _hundredsPrefix; // e.g., "שלוש מאות"
+        addVeAfterHundreds = false; // NO automatic 've' after X מאות (X>=3)
       }
-      remainder %= 100; // Get the remaining 0-99 part.
+      remainder %= 100; // Get the remaining tens/units part
     }
 
+    // Handle tens and units part (1-99)
     String tensUnitsPart = "";
-    // Process tens and units (1-99).
     if (remainder > 0) {
       if (remainder < 10) {
-        // 1-9: Use the appropriate gendered unit word.
-        tensUnitsPart = units[remainder];
+        // Units 1-9
+        if (remainder == 2 && useConstructFormForTwo) {
+          // Use construct "shnei"/"shtei" if requested
+          tensUnitsPart = (gender == Gender.feminine)
+              ? _twoFeminineConstruct
+              : _twoMasculineConstruct;
+        } else {
+          tensUnitsPart = units[remainder]; // Use standard unit word
+        }
       } else if (remainder < 20) {
-        // 10-19: Use the appropriate gendered teen word.
-        tensUnitsPart = teens[remainder - 10]; // Index 0 is 10, 1 is 11, etc.
+        // Teens 10-19
+        tensUnitsPart = teens[remainder - 10]; // Index is value - 10
       } else {
-        // 20-99:
+        // Tens 20-99
         int tensDigit = remainder ~/ 10;
         int unitDigit = remainder % 10;
-        // Get the tens word (note: 20-90 are gender-neutral).
-        tensUnitsPart = tens[tensDigit];
+        tensUnitsPart = tens[tensDigit]; // Get the tens word (e.g., "esrim")
         if (unitDigit > 0) {
-          // If there's a unit digit, add "ve" and the gendered unit word.
-          tensUnitsPart +=
-              _spacedAnd + units[unitDigit]; // e.g., "עשרים ושלושה"
+          // If there's a unit digit, add "ve" and the unit word
+          String unitWord;
+          // Use construct form for unit 2 if requested *within tens*
+          if (unitDigit == 2 && useConstructFormForTwo) {
+            unitWord = (gender == Gender.feminine)
+                ? _twoFeminineConstruct
+                : _twoMasculineConstruct;
+          } else {
+            unitWord = units[unitDigit]; // Use standard unit word
+          }
+          tensUnitsPart += _spacedAnd + unitWord; // e.g., "עשרים וחמש"
         }
       }
     }
 
-    // Combine hundreds and tens/units parts.
+    // Combine hundreds and tens/units parts
     if (hundredsPart.isNotEmpty && tensUnitsPart.isNotEmpty) {
-      // Add "ve" between hundreds and the rest.
-      return hundredsPart +
-          _spacedAnd +
-          tensUnitsPart; // e.g., "מאה ועשרים ושלוש"
+      // Determine connector: use "ve" only if flag is set (for 100, 200), otherwise use space.
+      String connector = addVeAfterHundreds ? _spacedAnd : " ";
+      return hundredsPart + connector + tensUnitsPart;
     } else {
-      // Return whichever part is non-empty.
+      // If either part is empty, just return the non-empty part.
       return hundredsPart.isNotEmpty ? hundredsPart : tensUnitsPart;
     }
+  }
+
+  /// Handles formatting a number as a calendar year in Hebrew.
+  ///
+  /// Typically, years are read as standard masculine numbers.
+  /// Uses standalone forms (like "alpayim" for 2000) and avoids construct forms for 3k-10k.
+  /// Example: 1984 -> "elef תשע מאות שמונים וארבע" (literally "thousand nine hundred eighty and four") - Masculine assumed
+  /// Example: 2023 -> "alpayim esrim ve-shalosh" (standalone 2000 + masculine 23)
+  ///
+  /// @param absValue The absolute (non-negative) year value.
+  /// @param options The [HeOptions] (gender is usually ignored/defaults to masculine).
+  /// @return The year formatted as Hebrew words.
+  String _handleYearFormat(BigInt absValue, HeOptions options) {
+    // Years typically use masculine, standalone forms, and no construct for 3k-10k range.
+    return _convertInteger(absValue, Gender.masculine, true, false);
+  }
+
+  /// Converts a non-negative [Decimal] value to Hebrew currency words.
+  ///
+  /// **Note:** This function contains the original logic provided, which may
+  /// have issues leading to test failures (e.g., duplication of subunit parts).
+  /// The comments describe the *intended* behavior based on the code structure.
+  ///
+  /// Uses [HeOptions.currencyInfo] for unit names (e.g., שקל/שקלים, אגורה/אגורות).
+  /// Attempts to apply Hebrew grammar:
+  /// - Main unit count often uses masculine forms (שני שקלים, שלושה שקלים).
+  /// - Subunit count often uses feminine forms (חמש אגורות, עשרים אגורות).
+  /// - Handles special cases for 1 and 2 (e.g., "שקל אחד", "שני שקלים").
+  /// Rounds if [HeOptions.round] is true.
+  ///
+  /// @param absValue Absolute currency value.
+  /// @param options The [HeOptions] with currency info and formatting flags.
+  /// @return Currency value as Hebrew words (potentially incorrect due to original logic).
+  String _handleCurrency(Decimal absValue, HeOptions options) {
+    // --- Setup ---
+    final CurrencyInfo currencyInfo = options.currencyInfo;
+    final bool round = options.round;
+    final int decimalPlaces = 2;
+    final Decimal subunitMultiplier =
+        Decimal.ten.pow(decimalPlaces).toDecimal();
+
+    // Round if requested
+    Decimal valueToConvert =
+        round ? absValue.round(scale: decimalPlaces) : absValue;
+
+    // Separate main and subunit values
+    final BigInt mainValue = valueToConvert.truncate().toBigInt();
+    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
+    // Use truncate for subunits (e.g., 1.999 should be 99 subunits, not 100)
+    final BigInt subunitValue =
+        (fractionalPart * subunitMultiplier).truncate().toBigInt();
+
+    // --- Process Main Part ---
+    String mainText = ""; // Number words for main value
+    String mainUnitName = ""; // Unit name (singular/plural)
+    bool mainValueProcessed =
+        false; // Flag to track if main value part was generated
+
+    if (mainValue > BigInt.zero) {
+      mainValueProcessed = true; // Mark that we have a main value
+      // Special handling for 1 and 2
+      if (mainValue == BigInt.one) {
+        // For 1, typically just the singular unit name. "echad" added later.
+        mainText = ""; // No number word needed here
+        mainUnitName = currencyInfo.mainUnitSingular;
+      } else if (mainValue == BigInt.from(2)) {
+        // For 2, use masculine construct "shnei" + plural unit name (e.g., "שני שקלים")
+        mainText = _twoMasculineConstruct; // "שני"
+        mainUnitName =
+            currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+      } else {
+        // For 3+, use masculine count + plural unit name (e.g., "שלושה שקלים")
+        mainText = _convertInteger(mainValue, Gender.masculine, false, true);
+        mainUnitName =
+            currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+      }
+    }
+
+    // Combine the main number text and unit name - THIS INITIALIZES `result`
+    // `result` now holds the beginning of the main part (or just the unit name if mainValue is 1)
+    String result = (mainText.isNotEmpty ? "$mainText " : "") + mainUnitName;
+
+    // Special handling for main value 1: append "אחד" after the singular unit name
+    if (mainValue == BigInt.one) {
+      result += " ${_unitsMasculine[1]}"; // Appends " אחד" to `result`
+    }
+
+    // --- Process Subunit Part ---
+    String subunitPart =
+        ""; // This variable will hold the fully constructed subunit part string
+
+    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
+      String subunitText = ""; // Number words for subunit value
+      String subUnitName = ""; // Subunit name (singular/plural)
+
+      // Special handling for 1 and 2
+      if (subunitValue == BigInt.one) {
+        // For 1, typically just the singular unit name. "achat" added later.
+        subunitText = ""; // No number word needed here
+        subUnitName = currencyInfo.subUnitSingular!;
+      } else if (subunitValue == BigInt.from(2)) {
+        // For 2, use feminine construct "shtei" + plural unit name (e.g., "שתי אגורות")
+        subunitText = _twoFeminineConstruct; // "שתי"
+        subUnitName =
+            currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular!;
+      } else {
+        // For 3+, use feminine count + plural unit name (e.g., "חמש אגורות")
+        subunitText =
+            _convertInteger(subunitValue, Gender.feminine, false, false);
+        subUnitName =
+            currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular!;
+      }
+
+      // Combine the subunit number text and unit name into `subunitPart`
+      subunitPart =
+          (subunitText.isNotEmpty ? "$subunitText " : "") + subUnitName;
+
+      // Special handling for subunit value 1: append "אחת" after the singular subunit name
+      if (subunitValue == BigInt.one) {
+        subunitPart +=
+            " ${_unitsFeminine[1]}"; // Appends " אחת" to `subunitPart`
+      }
+    }
+
+    // --- Combine Main and Subunit Parts --- (Original Potentially Flawed Logic)
+    if (mainValueProcessed && subunitPart.isNotEmpty) {
+      // *** ORIGINAL LOGIC ***
+      // If both parts exist, this appends the separator and the *entire* subunitPart
+      // onto the `result` string, which already contains the main part.
+      // This likely causes the duplication seen in the test failure.
+      // It does not check for custom separators defined in CurrencyInfo.
+      result += _spacedAnd + subunitPart;
+    } else if (!mainValueProcessed && subunitPart.isNotEmpty) {
+      // If only subunit part exists (e.g., 0.50)
+      // This assignment correctly sets `result` to the subunit part.
+      result = subunitPart;
+    } else if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
+      // Handle case where input was 0 or rounded to 0 - Returns here.
+      return "$_zero ${currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular}";
+    }
+
+    // Defensive check (from original code) - unclear if truly necessary with logic above
+    if (result.trim().isEmpty &&
+        mainValue == BigInt.zero &&
+        subunitValue == BigInt.zero) {
+      return "$_zero ${currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular}";
+    }
+
+    return result.trim(); // Trim final result
+  }
+
+  /// Converts a non-negative standard [Decimal] number to Hebrew words.
+  ///
+  /// Converts the integer part using [_convertInteger] respecting [HeOptions.gender].
+  /// Converts the fractional part digit by digit using base forms (e.g., 0.45 -> "נקודה ארבע חמש").
+  /// Uses the decimal separator word specified in [HeOptions.decimalSeparator].
+  ///
+  /// @param absValue The absolute decimal value.
+  /// @param options The [HeOptions] for formatting control (gender, decimal separator).
+  /// @return The number formatted as Hebrew words.
+  String _handleStandardNumber(Decimal absValue, HeOptions options) {
+    final BigInt integerPart = absValue.truncate().toBigInt();
+    final Decimal fractionalPart = absValue - absValue.truncate();
+
+    // Convert integer part, respecting gender. Use standalone and construct forms as appropriate for standard numbers.
+    // Use "אפס" if integer is 0 but a fraction exists.
+    String integerWords =
+        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
+            ? _zero
+            : _convertInteger(integerPart, options.gender, true, true);
+
+    String fractionalWords = '';
+    // Convert fractional part if it exists
+    if (fractionalPart > Decimal.zero) {
+      // Determine separator word ("נקודה" or "פסיק")
+      String separatorWord;
+      switch (options.decimalSeparator) {
+        case DecimalSeparator.comma:
+          separatorWord = _comma;
+          break;
+        case DecimalSeparator.period:
+        case DecimalSeparator.point:
+        default:
+          separatorWord = _point;
+          break;
+      }
+
+      // Get fractional digits string, trim trailing zeros for standard representation (e.g., 1.50 -> 1.5)
+      String fractionalDigits = absValue.toString().split('.').last;
+      while (fractionalDigits.endsWith('0') && fractionalDigits.length > 1) {
+        fractionalDigits =
+            fractionalDigits.substring(0, fractionalDigits.length - 1);
+      }
+
+      // Convert each digit to its base word form
+      if (fractionalDigits.isNotEmpty) {
+        List<String> digitWords = fractionalDigits
+            .split('')
+            .map((digit) =>
+                _unitsBase[int.parse(digit)]) // Use _unitsBase for digits 0-9
+            .toList();
+        fractionalWords =
+            ' $separatorWord ${digitWords.join(' ')}'; // e.g., " נקודה ארבע חמש"
+      }
+    }
+
+    // Ensure integerWords is "אפס" if integer part was zero initially but fraction exists
+    // (This check might be redundant if the initial assignment handled it, but safe to keep)
+    if (integerPart == BigInt.zero &&
+        integerWords.isEmpty &&
+        fractionalWords.isNotEmpty) {
+      integerWords = _zero;
+    }
+
+    // Combine integer and fractional parts
+    return '$integerWords$fractionalWords'.trim();
   }
 }

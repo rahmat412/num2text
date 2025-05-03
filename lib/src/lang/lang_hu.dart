@@ -1,4 +1,4 @@
-import 'dart:math';
+import 'dart:math'; // Used for min()
 
 import 'package:decimal/decimal.dart';
 
@@ -9,91 +9,78 @@ import '../options/hu_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_hu}
-/// The Hungarian language (`Lang.HU`) implementation for converting numbers to words.
+/// Converts numbers to Hungarian words (`Lang.HU`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Hungarian word representation following Hungarian grammar rules, including
-/// specific compounding for numbers under 2000 and long scale usage.
+/// Implements [Num2TextBase] for Hungarian, handling various numeric types.
+/// Follows Hungarian grammar rules, including compounding (joining words without space)
+/// and hyphenation for numbers >= 2000. Uses the long scale (millió, milliárd, etc.).
 ///
-/// Capabilities include handling cardinal numbers, currency (using [HuOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (long scale).
-/// Invalid inputs result in a fallback message.
+/// Supports:
+/// - Cardinal numbers with correct compounding/hyphenation.
+/// - Currency formatting (typically simple structure, e.g., "száz forint").
+/// - Year formatting (with optional AD/BC suffixes).
+/// - Decimals (using "egész" or "pont").
+/// - Negative numbers.
+/// - Large numbers (long scale).
 ///
-/// Behavior can be customized using [HuOptions].
+/// Customizable via [HuOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextHU implements Num2TextBase {
-  // --- Private Constants ---
-
-  /// The word for zero.
+  // --- Constants ---
   static const String _zero = "nulla";
-
-  /// The word used for the decimal separator when using `DecimalSeparator.period` or `DecimalSeparator.point`.
-  static const String _point = "pont";
-
-  /// The word used for the decimal separator when using `DecimalSeparator.comma` (default).
-  /// Also means "whole" or "integer".
-  static const String _comma = "egész";
-
-  /// The separator used between thousands and lower units for numbers >= 2000.
-  static const String _thousandSeparator = "-";
-
-  /// The suffix for years Before Christ (Before Common Era).
+  static const String _point = "pont"; // Decimal separator "point"
+  static const String _comma = "egész"; // Decimal separator "comma" / "whole"
+  static const String _thousandSeparator =
+      "-"; // Hyphen used after scales for numbers >= 2000
   static const String _yearSuffixBC =
-      "i.e."; // időszámításunk előtt (before our era)
-
-  /// The suffix for years Anno Domini (Common Era).
+      "i. e."; // "időszámításunk előtt" (before our era)
   static const String _yearSuffixAD =
-      "i.sz."; // időszámításunk szerint (according to our era)
+      "i. sz."; // "időszámításunk szerint" (according to our era)
 
-  /// Words for numbers 0-19. Note: index 0 is empty as "nulla" is handled separately.
+  // Numbers 0-19 (index 0 empty)
   static const List<String> _wordsUnder20 = [
-    "", // 0 (placeholder)
-    "egy", // 1
-    "kettő", // 2
-    "három", // 3
-    "négy", // 4
-    "öt", // 5
-    "hat", // 6
-    "hét", // 7
-    "nyolc", // 8
-    "kilenc", // 9
-    "tíz", // 10
-    "tizenegy", // 11
-    "tizenkettő", // 12
-    "tizenhárom", // 13
-    "tizennégy", // 14
-    "tizenöt", // 15
-    "tizenhat", // 16
-    "tizenhét", // 17
-    "tizennyolc", // 18
-    "tizenkilenc", // 19
+    "",
+    "egy",
+    "kettő",
+    "három",
+    "négy",
+    "öt",
+    "hat",
+    "hét",
+    "nyolc",
+    "kilenc",
+    "tíz",
+    "tizenegy",
+    "tizenkettő",
+    "tizenhárom",
+    "tizennégy",
+    "tizenöt",
+    "tizenhat",
+    "tizenhét",
+    "tizennyolc",
+    "tizenkilenc",
   ];
 
-  /// Words for tens (10, 20, ..., 90). Note: index 0 and 1 are empty/covered by _wordsUnder20.
+  // Tens (index 0, 1 empty)
   static const List<String> _wordsTens = [
-    "", // 0 (placeholder)
-    "", // 10 (use _wordsUnder20[10])
-    "húsz", // 20
-    "harminc", // 30
-    "negyven", // 40
-    "ötven", // 50
-    "hatvan", // 60
-    "hetven", // 70
-    "nyolcvan", // 80
-    "kilencven", // 90
+    "",
+    "",
+    "húsz",
+    "harminc",
+    "negyven",
+    "ötven",
+    "hatvan",
+    "hetven",
+    "nyolcvan",
+    "kilencven",
   ];
 
-  /// The word for "hundred".
-  static const String _hundredWord = "száz";
+  static const String _hundredWord = "száz"; // "hundred"
+  static const String _thousandWord = "ezer"; // "thousand"
 
-  /// The word for "thousand". Used as a scale name and within numbers like 1000, 2000 etc.
-  static const String _thousandWord = "ezer";
-
-  /// Scale words for large numbers (thousand, million, billion, etc.).
-  /// Follows the long scale system (alternating -ió and -iárd suffixes).
+  // Scale words (Long Scale: 10^6, 10^9, 10^12...)
   static const List<String> _scaleWords = [
-    "", // 10^0 (Units - no scale word)
+    "", // 10^0 (Units)
     _thousandWord, // 10^3
     "millió", // 10^6
     "milliárd", // 10^9
@@ -107,16 +94,27 @@ class Num2TextHU implements Num2TextBase {
     "kvintilliárd", // 10^33
     "szextillió", // 10^36
     "szextilliárd", // 10^39
-    // Add more scales as needed, following the pattern:
-    // septillió, septilliárd, oktillió, oktilliárd, etc.
   ];
 
-  /// Processes the given number into its Hungarian word representation.
+  /// Processes the given [number] into Hungarian words.
   ///
-  /// [number] The number to convert (can be `int`, `double`, `BigInt`, `Decimal`, or `String`).
-  /// [options] Optional [HuOptions] to customize formatting (currency, year, decimal separator, etc.). Defaults to `HuOptions()`.
-  /// [fallbackOnError] Optional string to return if conversion fails (e.g., invalid input). Defaults to "Nem szám".
-  /// Returns the word representation of the number in Hungarian, or a fallback string on error.
+  /// {@template num2text_process_intro_hu}
+  /// Normalizes input to [Decimal]. Handles `Infinity`, `NaN`.
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_options_hu}
+  /// Uses [HuOptions] for customization (currency, year format, decimal separator, AD/BC, negative prefix).
+  /// Defaults apply if [options] is null or not [HuOptions].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_errors_hu}
+  /// Returns [fallbackOnError] or "Nem szám" on failure.
+  /// {@endtemplate}
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [HuOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Hungarian words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
@@ -124,194 +122,69 @@ class Num2TextHU implements Num2TextBase {
         options is HuOptions ? options : const HuOptions();
     const String defaultFallback = "Nem szám"; // "Not a number"
 
-    // Handle special double values directly (cannot be normalized to Decimal).
     if (number is double) {
       if (number.isInfinite)
         return number.isNegative ? "Negatív végtelen" : "Végtelen";
       if (number.isNaN) return fallbackOnError ?? defaultFallback;
     }
 
-    // Normalize input to Decimal for consistent handling.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return fallbackOnError ?? defaultFallback;
 
-    // Handle normalization failures (null, NaN, invalid strings).
-    if (decimalValue == null) {
-      return fallbackOnError ?? defaultFallback;
-    }
-
-    // Handle zero separately.
-    if (decimalValue == Decimal.zero) {
-      if (huOptions.currency) {
-        // "nulla forint" etc.
-        return "$_zero ${huOptions.currencyInfo.mainUnitSingular}";
-      }
-      if (huOptions.format == Format.year) {
-        // Year 0 is just "nulla".
-        return _zero;
-      }
-      // For "0.0" or "0.00", handle as standard number to include decimal part if needed.
-      if (decimalValue.scale > 0 && !decimalValue.isInteger) {
-        return _handleStandardNumber(
-            decimalValue, huOptions); // e.g., "nulla egész nulla"
-      }
-      // Otherwise (integer zero), just return "nulla".
-      return _zero;
-    }
-
-    // Determine sign and use absolute value for core conversion.
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
-    String textResult;
+    // Handle zero separately.
+    if (decimalValue == Decimal.zero) {
+      // Zero currency usually includes the main unit name.
+      if (huOptions.currency) {
+        // Check if subunits exist to let _handleCurrency decide if only subunits show
+        if (huOptions.currencyInfo.subUnitSingular != null &&
+            absValue.scale > 0) {
+          // Fall through to _handleCurrency for potential "nulla [main] X [sub]" or just "X [sub]"
+        } else {
+          // Otherwise, return "nulla [mainUnit]".
+          return "$_zero ${huOptions.currencyInfo.mainUnitSingular}";
+        }
+      }
+      // Standard zero or year zero.
+      if (huOptions.format == Format.year || decimalValue.isInteger) {
+        return _zero;
+      }
+      // If it's 0.xyz, fall through to handle via _handleStandardNumber which prepends "nulla".
+    }
 
-    // Delegate based on formatting options.
+    String textResult;
     if (huOptions.format == Format.year) {
-      // Years require special handling (BC/AD suffixes, negativity handled internally).
+      // Year formatting handles negativity internally via suffixes.
       textResult = _handleYearFormat(
           absValue.truncate().toBigInt(), isNegative, huOptions);
     } else {
-      // Handle currency or standard number format.
       if (huOptions.currency) {
         textResult = _handleCurrency(absValue, huOptions);
       } else {
         textResult = _handleStandardNumber(absValue, huOptions);
       }
-
-      // Prepend negative prefix if applicable for non-year formats.
+      // Prepend negative prefix if needed.
       if (isNegative) {
-        textResult = "${huOptions.negativePrefix} $textResult";
-      }
-    }
-    return textResult.trim(); // Ensure no trailing spaces.
-  }
-
-  /// Formats a number as a year, adding BC/AD suffixes.
-  ///
-  /// [yearValue] The absolute value of the year (as BigInt).
-  /// [isOriginalNegative] True if the original input year was negative (BC/BCE).
-  /// [options] The Hungarian formatting options.
-  /// Returns the year formatted as text with appropriate suffixes.
-  String _handleYearFormat(
-      BigInt yearValue, bool isOriginalNegative, HuOptions options) {
-    // Convert the year integer part to words.
-    String yearText = _convertInteger(yearValue);
-
-    // Add suffixes based on sign and options.
-    if (isOriginalNegative) {
-      // Negative years always get the BC suffix.
-      yearText += " $_yearSuffixBC";
-    } else if (options.includeAD && yearValue > BigInt.zero) {
-      // Positive years get the AD suffix only if includeAD is true.
-      yearText += " $_yearSuffixAD";
-    }
-    return yearText;
-  }
-
-  /// Formats a number as currency according to Hungarian conventions.
-  ///
-  /// [absValue] The absolute value of the number (as Decimal).
-  /// [options] The Hungarian formatting options, including currency info.
-  /// Returns the number formatted as currency text (e.g., "száz forint ötven fillér").
-  String _handleCurrency(Decimal absValue, HuOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    const int decimalPlaces = 2; // Standard subunit precision.
-    final Decimal subunitMultiplier = Decimal.fromInt(100);
-
-    // Currency is typically rounded to standard subunit places.
-    final Decimal valueToConvert = absValue.round(scale: decimalPlaces);
-
-    // Separate main unit and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    // Calculate subunit value (e.g., 0.45 * 100 = 45).
-    final BigInt subunitValue =
-        ((valueToConvert - mainValue.toDecimal()) * subunitMultiplier)
-            .truncate()
-            .toBigInt();
-
-    // Convert main value to words.
-    String mainText = _convertInteger(mainValue);
-    // Get the appropriate currency unit name (always singular in Hungarian after numbers).
-    String mainUnitName = currencyInfo.mainUnitSingular;
-
-    // Combine main value text and unit name.
-    String result = '$mainText $mainUnitName';
-
-    // Add subunit part if it exists and is defined in CurrencyInfo.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      String subunitText = _convertInteger(subunitValue);
-      String subUnitName =
-          currencyInfo.subUnitSingular!; // Assumes singular form is sufficient.
-      // Append subunit text and name (no explicit separator like "and" in Hungarian).
-      result += ' $subunitText $subUnitName';
-    }
-    return result;
-  }
-
-  /// Handles standard number formatting, including integers and decimals.
-  ///
-  /// [absValue] The absolute value of the number (as Decimal).
-  /// [options] The Hungarian formatting options, especially `decimalSeparator`.
-  /// Returns the number formatted as text, potentially including a decimal part.
-  String _handleStandardNumber(Decimal absValue, HuOptions options) {
-    final BigInt integerPart = absValue.truncate().toBigInt();
-    final int scale = absValue.scale; // Number of digits after decimal point.
-
-    // Convert the integer part to words.
-    String integerWords = _convertInteger(integerPart);
-
-    String fractionalWords = '';
-    // Process fractional part only if it exists (scale > 0 and not an integer like 123.0).
-    if (scale > 0 && !absValue.isInteger) {
-      // Determine the decimal separator word based on options. Default to comma ("egész").
-      String separatorWord;
-      switch (options.decimalSeparator ?? DecimalSeparator.comma) {
-        case DecimalSeparator.period:
-        case DecimalSeparator.point:
-          separatorWord = _point; // "pont"
-          break;
-        case DecimalSeparator.comma:
-          separatorWord = _comma; // "egész"
-          break;
-      }
-
-      // Extract fractional digits as a string.
-      String numberStr = absValue.toString();
-      // Ensure we handle cases like "0.5" correctly by splitting at '.'.
-      String fractionalDigitsStr =
-          numberStr.contains('.') ? numberStr.split('.').last : '';
-
-      // Trim trailing zeros for standard display (e.g., 1.50 -> "öt").
-      fractionalDigitsStr = fractionalDigitsStr.replaceAll(RegExp(r'0+$'), '');
-
-      // Convert each fractional digit to its word representation if any remain.
-      if (fractionalDigitsStr.isNotEmpty) {
-        List<String> digitWords = fractionalDigitsStr.split('').map((digit) {
-          final int digitInt = int.parse(digit);
-          // Digits after decimal point are read individually.
-          // Use _wordsUnder20 for 1-9, _zero for 0.
-          return (digitInt == 0 ? _zero : _wordsUnder20[digitInt]);
-        }).toList();
-
-        // Construct the fractional part string (e.g., " egész öt hat" or " pont nulla öt").
-        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+        // Avoid double prefix if zero handling already included it (e.g., 0.5 case).
+        if (!(decimalValue == Decimal.zero && textResult.startsWith(_zero))) {
+          textResult = "${huOptions.negativePrefix} $textResult";
+        }
       }
     }
 
-    // Combine integer and fractional parts.
-    // Handle the special case where the integer part was zero.
-    if (integerPart == BigInt.zero && fractionalWords.isNotEmpty) {
-      return "$_zero$fractionalWords"; // e.g., "nulla egész öt" (starts with "nulla")
-    } else {
-      return '$integerWords$fractionalWords'
-          .trim(); // e.g., "százhuszonhárom egész öt" or just "százhuszonhárom"
-    }
+    return textResult.trim();
   }
 
-  /// Converts a non-negative integer (BigInt) into its Hungarian word representation.
-  /// Handles large numbers using scale words and applies hyphenation rules.
+  /// Converts a non-negative integer ([BigInt]) into Hungarian words.
   ///
-  /// [n] The non-negative integer to convert.
-  /// Returns the integer as Hungarian text. Throws ArgumentError for negative input or unsupported scale.
+  /// Handles Hungarian compounding rules (joining words) and hyphenation for numbers >= 2000.
+  /// Uses the long scale (millió, milliárd, etc.).
+  ///
+  /// @param n The non-negative BigInt number.
+  /// @throws ArgumentError If n is negative or exceeds defined scales.
+  /// @return The integer as Hungarian words.
   String _convertInteger(BigInt n) {
     if (n < BigInt.zero) {
       throw ArgumentError(
@@ -319,195 +192,343 @@ class Num2TextHU implements Num2TextBase {
     }
     if (n == BigInt.zero) return _zero;
 
+    // Handle specific cases crucial for compounding/rules.
+    if (n == BigInt.from(1000)) return _thousandWord; // "ezer"
+    if (n == BigInt.from(2000))
+      return "kétezer"; // Special compound form for 2000.
+
+    // Numbers 1001-1999 have special compounding: "ezer" + remainder word.
+    if (n > BigInt.from(1000) && n < BigInt.from(2000)) {
+      final int remainder = (n % BigInt.from(1000)).toInt();
+      // Convert the 1-999 remainder.
+      final String remainderText = _convertChunk1To999(remainder);
+      // Join directly: "ezer" + "egy" -> "ezeregy", "ezer" + "száz" -> "ezerszáz".
+      return "$_thousandWord$remainderText";
+    }
+
+    // For numbers >= 2000 or < 1000, use chunking logic.
     final String s = n.toString();
     final int len = s.length;
-
-    // Determine number of groups of three digits (e.g., 123,456,789 -> 3 groups).
+    // Determine number of 3-digit groups.
     final int numGroups = (len + 2) ~/ 3;
-    // Determine length of the first group (1, 2, or 3 digits).
+    // Length of the first (leftmost) group (can be 1, 2, or 3 digits).
     final int firstGroupLen = len % 3 == 0 ? 3 : len % 3;
 
-    List<String> parts =
-        []; // Stores word parts for each group (e.g., "százhuszonhárom", "ezer").
+    List<String> parts = []; // Stores converted scale group strings.
     int currentPos = 0; // Current position in the number string.
+    // Tracks if the last *non-zero* chunk processed was the units chunk (for hyphenation).
+    bool lastChunkWasUnits = false;
 
-    // Process the number in groups of three digits from left to right.
+    // Iterate through groups from left to right (most significant to least significant).
     for (int groupIndex = 0; groupIndex < numGroups; groupIndex++) {
       final int groupLen = (groupIndex == 0) ? firstGroupLen : 3;
-      // Calculate end position, ensuring it doesn't exceed string length.
-      final int endPos = min(currentPos + groupLen, len);
-
+      final int endPos =
+          min(currentPos + groupLen, len); // Avoid overshooting string length.
       final String groupStr = s.substring(currentPos, endPos);
-      final int groupValue = int.parse(groupStr);
-      currentPos += groupLen; // Move position for the next group.
+      final int groupValue =
+          int.parse(groupStr); // Numeric value of the group (1-999).
+      currentPos += groupLen;
 
-      // Skip groups of zeros (e.g., in 1,000,001).
-      if (groupValue == 0) continue;
-
-      // Determine the scale index (0 for units, 1 for thousands, 2 for millions, etc.).
+      // Scale index (0=units, 1=thousands, 2=millions...). Decreases from left to right.
       final int scaleIndex = numGroups - 1 - groupIndex;
 
-      // Check if the scale is supported.
+      // Skip groups that are zero.
+      if (groupValue == 0) {
+        continue;
+      }
+
+      // If this non-zero group is the units group, mark it for potential hyphenation later.
+      lastChunkWasUnits = (scaleIndex == 0);
+
+      // Check if scale is defined.
       if (scaleIndex >= _scaleWords.length) {
         throw ArgumentError(
-          "Number too large, scale index $scaleIndex is out of bounds for defined _scaleWords.",
-        );
+            "Number too large, scale index $scaleIndex out of bounds.");
       }
 
-      // Convert the 1-999 group value to words.
-      String groupText = _convertChunk1To999(groupValue);
+      // Convert the current group's value (1-999) to words.
+      String currentGroupText = _convertChunk1To999(groupValue);
+      // Use a temporary variable for potential 'kettő' -> 'két' transformation.
+      String prefixText = currentGroupText;
 
-      // Append scale word if applicable (not the units group, scaleIndex > 0).
       if (scaleIndex > 0) {
+        // This group is thousands, millions, etc.
         final String scaleWord = _scaleWords[scaleIndex];
+        String partToAdd; // The final string for this scale group.
+        bool compound =
+            false; // Flag to determine if compounding (no space) occurs.
 
-        // Special handling for "one thousand", "one million", etc.
-        if (groupValue == 1) {
-          if (scaleIndex == 1) {
-            // Just "ezer" (thousand), not "egyezer".
-            parts.add(scaleWord);
-          } else {
-            // "egymillió", "egymilliárd", etc. (Prefix "egy" to scale word).
-            parts.add("egy$scaleWord");
-          }
-        } else {
-          // Handle numbers like 2000 ("kétezer") vs 3000 ("háromezer").
-          if (scaleIndex == 1 && groupValue == 2) {
-            // Special case for 2000: use "két" instead of "kettő".
-            groupText = "két";
-          }
+        // Apply Hungarian compounding rules before scale words:
+        // Compound if the number part is:
+        // - 1 before million+ (egy + millió)
+        // - 2 before thousand+ (két + ezer/millió)
+        // - 1-999 before thousand (e.g., száz + ezer) -> (handled by 1001-1999 logic earlier, and this catches other cases)
+        // - Any number ending in 0 (tíz, húsz, száz, ...) before any scale word.
+        if (groupValue == 1 && scaleIndex > 1)
+          compound = true;
+        else if (groupValue == 2 && scaleIndex >= 1)
+          compound = true;
+        else if (scaleIndex == 1 && groupValue > 0 /* && groupValue < 1000 */)
+          compound = true; // 1ezer-999ezer compound
+        else if (groupValue > 0 && groupValue % 10 == 0) compound = true;
 
-          // Combine group text and scale word.
-          // Add space for scales larger than thousand (e.g., "kettő millió").
-          // No space for thousands (e.g., "kétezer", "háromezer"). Concatenate directly.
-          parts.add(scaleIndex == 1
-              ? "$groupText$scaleWord"
-              : "$groupText $scaleWord");
+        // Apply 'kettő' -> 'két' transformation if needed before the scale word.
+        if (groupValue == 2) {
+          prefixText = "két"; // Number is exactly 2.
+        } else if (prefixText.endsWith("kettő")) {
+          // Number ends in 2 (e.g., tizenkettő -> tizenkét).
+          prefixText = "${prefixText.substring(0, prefixText.length - 5)}két";
         }
+
+        // Construct the part for this scale.
+        if (groupValue == 1 && scaleIndex == 1) {
+          // Handle exactly 1000 prefix (e.g., in 5,001,000 -> ötmillió-ezer). Just use "ezer".
+          partToAdd = scaleWord;
+        } else if (compound) {
+          // Compound directly: "két"+"ezer"->"kétezer", "tíz"+"millió"->"tízmillió".
+          partToAdd = "$prefixText$scaleWord";
+        } else {
+          // Separate with space: "három millió", "százhuszonhárom millió".
+          partToAdd = "$prefixText $scaleWord";
+        }
+        parts.add(partToAdd);
       } else {
-        // This is the last group (units place 1-999), just add its text.
-        parts.add(groupText);
+        // This IS the units part (scaleIndex == 0).
+        // Use the original text ('kettő' remains 'kettő' here, e.g., "százkettő").
+        parts.add(currentGroupText);
       }
     }
 
-    // If all groups were zero (should be handled by the initial n==0 check), return zero.
+    // If all groups were zero (input was effectively 0).
     if (parts.isEmpty) return _zero;
 
-    // --- Combine the parts with correct spacing/hyphenation ---
-
-    // Simple case: only one part (e.g., "százhuszonhárom" or "egymillió").
-    if (parts.length == 1) {
-      return parts[0];
-    }
-
-    // Hungarian hyphenation rule: Use a hyphen before the last group (1-999)
-    // if the number is >= 2000 AND the last group is non-zero.
-    bool applyHyphen = false;
-    if (n >= BigInt.from(2000) && parts.length > 1) {
-      // Check if the last group value (units 1-999) is greater than zero.
-      // Get last 1-3 digits.
-      final String lastGroupStr = s.substring(max(0, len - 3));
-      final int lastGroupValue = int.parse(lastGroupStr);
-      if (lastGroupValue > 0) {
-        applyHyphen = true;
-      }
-    }
-
-    if (applyHyphen) {
-      // Join all parts except the last with spaces.
+    // Combine the parts. Apply hyphenation rule:
+    // Hyphenate ONLY IF original number >= 2000 AND the last non-zero part was the units group.
+    if (n >= BigInt.from(2000) && lastChunkWasUnits && parts.length > 1) {
+      // Join scale parts with space, then hyphen, then units part.
       String prefix = parts.sublist(0, parts.length - 1).join(' ');
-      // Combine: prefix + hyphen + last_part.
-      return prefix + _thousandSeparator + parts.last;
+      return prefix +
+          _thousandSeparator +
+          parts.last; // e.g., "kétezer-egy", "ötmillió-száz"
     } else {
-      // No hyphen needed. Join with spaces, but handle 1001-1999 case without space after "ezer".
-      // Example: 1101 -> "ezerszázegy"
-      if (n > BigInt.from(1000) &&
-          n < BigInt.from(2000) &&
-          parts.length == 2 && // Consists of "ezer" and the 1-999 part.
-          parts[0] == _thousandWord) {
-        return parts[0] + parts[1]; // Concatenate directly: "ezer" + "százegy".
-      } else {
-        // Join all other cases with spaces.
-        return parts.join(' ');
-      }
+      // Otherwise, join all parts with spaces.
+      return parts.join(' '); // e.g., "ezerötszáz", "százhuszonhárom"
     }
   }
 
-  /// Converts a number between 1 and 99 into its Hungarian word representation.
+  /// Formats a non-negative [Decimal] value as Hungarian currency.
   ///
-  /// [n] The integer between 1 and 99.
-  /// Returns the number as Hungarian text, or an empty string if out of range.
+  /// Hungarian currency usually uses a simple structure: number + unit name.
+  /// Rounding is applied to standard subunit places.
+  ///
+  /// @param absValue The absolute decimal value of the currency.
+  /// @param options The [HuOptions] with currency info.
+  /// @return The currency value formatted as Hungarian words.
+  String _handleCurrency(Decimal absValue, HuOptions options) {
+    final CurrencyInfo currencyInfo = options.currencyInfo;
+    const int decimalPlaces = 2; // Standard subunit precision.
+    final Decimal subunitMultiplier = Decimal.fromInt(100);
+
+    // Round the value to the standard subunit places.
+    final Decimal valueToConvert = absValue.round(scale: decimalPlaces);
+
+    final BigInt mainValue = valueToConvert.truncate().toBigInt();
+    // Calculate subunit value precisely.
+    final BigInt subunitValue =
+        ((valueToConvert - mainValue.toDecimal()) * subunitMultiplier)
+            .truncate()
+            .toBigInt();
+
+    String result = "";
+
+    // Convert main value if > 0.
+    if (mainValue > BigInt.zero) {
+      String mainText = _convertInteger(mainValue);
+      // Hungarian usually uses singular unit name regardless of number.
+      String mainUnitName = currencyInfo.mainUnitSingular;
+      result = '$mainText $mainUnitName';
+    } else if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
+      // Handle exactly 0.00.
+      return "$_zero ${currencyInfo.mainUnitSingular}";
+    }
+
+    // Convert subunit value if > 0 and defined.
+    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
+      String subunitText = _convertInteger(subunitValue);
+      // Use singular subunit name.
+      String subUnitName = currencyInfo.subUnitSingular!;
+      String subunitPart = '$subunitText $subUnitName';
+
+      // Combine parts.
+      if (result.isNotEmpty) {
+        // Typically just space-separated in Hungarian: "száz forint ötven fillér".
+        result += ' $subunitPart';
+      } else {
+        // Only subunit part exists (e.g., 0.50).
+        result = subunitPart;
+      }
+    } else if (result.isEmpty && subunitValue == BigInt.zero) {
+      // This case means mainValue was 0, subunitValue is 0. Return "nulla [mainUnit]".
+      return "$_zero ${currencyInfo.mainUnitSingular}";
+    }
+
+    return result;
+  }
+
+  /// Formats a non-negative standard [Decimal] number to Hungarian words.
+  ///
+  /// Converts integer and fractional parts. Uses the decimal separator word ("egész" or "pont")
+  /// from [HuOptions]. Fractional part converted digit by digit.
+  /// Handles the case where the integer part is zero ("nulla egész...").
+  ///
+  /// @param absValue Absolute decimal value.
+  /// @param options The [HuOptions] for formatting control (decimal separator).
+  /// @return Number as Hungarian words.
+  String _handleStandardNumber(Decimal absValue, HuOptions options) {
+    final BigInt integerPart = absValue.truncate().toBigInt();
+    final int scale = absValue.scale; // Number of digits after decimal.
+
+    // Convert the integer part.
+    String integerWords = _convertInteger(integerPart);
+
+    String fractionalWords = '';
+    // Process fractional part only if it exists and the number isn't an integer (e.g., 123.0).
+    if (scale > 0 && !absValue.isInteger) {
+      // Determine separator word ("egész" or "pont"). Default to "egész".
+      String separatorWord;
+      switch (options.decimalSeparator ?? DecimalSeparator.comma) {
+        case DecimalSeparator.period:
+        case DecimalSeparator.point:
+          separatorWord = _point;
+          break;
+        case DecimalSeparator.comma:
+          separatorWord = _comma;
+          break;
+      }
+
+      // Get fractional digits string.
+      String numberStr = absValue.toString();
+      String fractionalDigitsStr =
+          numberStr.contains('.') ? numberStr.split('.').last : '';
+
+      // Remove trailing zeros for standard representation.
+      fractionalDigitsStr = fractionalDigitsStr.replaceAll(RegExp(r'0+$'), '');
+
+      // Convert remaining digits individually.
+      if (fractionalDigitsStr.isNotEmpty) {
+        List<String> digitWords = fractionalDigitsStr.split('').map((digit) {
+          final int digitInt = int.parse(digit);
+          // Use "nulla" for 0, _wordsUnder20 for 1-9.
+          return (digitInt == 0 ? _zero : _wordsUnder20[digitInt]);
+        }).toList();
+        // Combine separator and digit words.
+        fractionalWords =
+            ' $separatorWord ${digitWords.join(' ')}'; // e.g., " egész öt hat", " pont nulla öt"
+      }
+    }
+
+    // Combine parts. Handle integer zero case specifically.
+    if (integerPart == BigInt.zero && fractionalWords.isNotEmpty) {
+      // Prepend "nulla" if integer part is zero but fraction exists.
+      return "$_zero$fractionalWords"; // e.g., "nulla egész öt"
+    } else {
+      // Standard combination or just integer part.
+      return '$integerWords$fractionalWords'.trim();
+    }
+  }
+
+  /// Converts an integer between 1 and 99 into Hungarian words.
+  /// Handles compounding (e.g., "huszon-", "harmincegy").
+  ///
+  /// @param n The integer (1-99).
+  /// @return The number as Hungarian text, or empty string if out of range.
   String _convertChunk1To99(int n) {
-    if (n <= 0 || n >= 100) return ""; // Handle invalid input range.
+    if (n <= 0 || n >= 100) return "";
 
-    // Numbers 1-19 have unique words.
-    if (n < 20) return _wordsUnder20[n];
+    if (n < 20) return _wordsUnder20[n]; // Direct lookup 1-19.
 
-    // Numbers 20, 30, ..., 90.
     final int tensDigit = n ~/ 10;
     final int units = n % 10;
-    final String tensWord = _wordsTens[tensDigit];
+    final String tensWord = _wordsTens[tensDigit]; // "húsz", "harminc", ...
 
     if (units == 0) {
-      // Exact tens (20, 30, etc.).
-      return tensWord;
+      return tensWord; // Exact tens: "húsz", "harminc".
     } else {
-      // Compound tens (21, 34, etc.).
-      // Special prefix "huszon" for 21-29.
+      // Compound tens:
       if (tensDigit == 2) {
-        return "huszon${_wordsUnder20[units]}"; // "huszonegy", "huszonkettő", etc.
+        // Special prefix "huszon" for 21-29.
+        return "huszon${_wordsUnder20[units]}"; // "huszonegy", "huszonkettő".
       } else {
-        // Other tens: combine tens word and units word directly (no space).
-        return "$tensWord${_wordsUnder20[units]}"; // "harmincegy", "negyvenkettő", etc.
+        // Other tens compound directly: "harminc"+"egy" -> "harmincegy".
+        return "$tensWord${_wordsUnder20[units]}";
       }
     }
   }
 
-  /// Converts a number between 100 and 999 into its Hungarian word representation.
-  /// Also handles numbers 1-99 by delegating.
+  /// Converts an integer between 100 and 999 into Hungarian words.
+  /// Handles compounding (e.g., "százegy", "kétszáz").
   ///
-  /// [n] The integer between 1 and 999.
-  /// Returns the number as Hungarian text, or an empty string if out of range (e.g., 0 or >= 1000).
+  /// @param n The integer (100-999).
+  /// @return The number as Hungarian text, or empty string if out of range.
   String _convertChunk100To999(int n) {
-    // Delegate to _convertChunk1To99 for numbers below 100.
     if (n < 100) {
-      if (n > 0) return _convertChunk1To99(n);
-      return ""; // Return empty for 0 or negative.
+      // Should be handled by caller, but delegate just in case.
+      return (n > 0) ? _convertChunk1To99(n) : "";
     }
-    if (n >= 1000) return ""; // Out of range for this helper.
+    if (n >= 1000) return ""; // Out of range.
 
     final int hundredsDigit = n ~/ 100;
-    final int remainder = n % 100; // The part between 0-99.
+    final int remainder = n % 100; // 0-99 part.
 
     String hundredsWord;
-    // Special case for 100 ("száz") vs 200 ("kétszáz"), 300 ("háromszáz"), etc.
     if (hundredsDigit == 1) {
-      hundredsWord = _hundredWord; // "száz".
+      hundredsWord = _hundredWord; // "száz"
     } else {
-      // Use "két" for 200, otherwise use the standard digit word.
+      // Use "két" for 200, standard digit word otherwise.
       final String hundredsPrefix =
           (hundredsDigit == 2) ? "két" : _wordsUnder20[hundredsDigit];
-      hundredsWord =
-          "$hundredsPrefix$_hundredWord"; // "kétszáz", "háromszáz", etc.
+      hundredsWord = "$hundredsPrefix$_hundredWord"; // "kétszáz", "háromszáz".
     }
 
-    // If there's no remainder, return just the hundreds word.
     if (remainder == 0) {
-      return hundredsWord;
+      return hundredsWord; // Just "száz", "kétszáz", etc.
     } else {
-      // Combine hundreds word and the word for the remainder (1-99) directly (no space).
+      // Compound hundreds word and remainder word directly.
       return "$hundredsWord${_convertChunk1To99(remainder)}"; // "százegy", "kétszázötvenhat".
     }
   }
 
-  /// Converts a number between 1 and 999 into its Hungarian word representation.
-  /// This acts as a dispatcher to the appropriate helper based on the number's range.
+  /// Converts an integer between 1 and 999 into Hungarian words.
+  /// Dispatches to the appropriate helper (_convertChunk1To99 or _convertChunk100To999).
   ///
-  /// [n] The integer between 1 and 999.
-  /// Returns the number as Hungarian text, or an empty string if 0 or out of range.
+  /// @param n The integer (1-999).
+  /// @return The number as Hungarian text, or empty string if 0 or out of range.
   String _convertChunk1To999(int n) {
     if (n <= 0 || n >= 1000) return "";
     if (n < 100) return _convertChunk1To99(n);
-    return _convertChunk100To999(n); // Handles 100-999.
+    return _convertChunk100To999(n);
+  }
+
+  /// Formats a number as a calendar year in Hungarian.
+  ///
+  /// Appends BC/AD suffixes based on sign and options.
+  ///
+  /// @param yearValue The absolute value of the year.
+  /// @param isOriginalNegative True if the original year was negative.
+  /// @param options The Hungarian options (for `includeAD`).
+  /// @return The year formatted as Hungarian words.
+  String _handleYearFormat(
+      BigInt yearValue, bool isOriginalNegative, HuOptions options) {
+    // Convert year using standard integer conversion (handles compounding/hyphenation).
+    String yearText = _convertInteger(yearValue);
+
+    // Append suffixes.
+    if (isOriginalNegative) {
+      yearText += " $_yearSuffixBC";
+    } else if (options.includeAD && yearValue > BigInt.zero) {
+      // Only add AD if requested and year is positive.
+      yearText += " $_yearSuffixAD";
+    }
+    return yearText;
   }
 }

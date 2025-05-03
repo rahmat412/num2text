@@ -1,3 +1,9 @@
+## 0.0.3
+
+- **Enhanced core conversion logic, resulting in improved output accuracy for many numbers and languages.**
+- **Improved and expanded the test suite.**
+- _Note: While accuracy is improved, the library is still under development and may not be 100% accurate for all complex cases or languages (as detailed in `note.md`)._
+
 ## 0.0.2
 
 - fix: Resolved pub.dev static analysis issues.

@@ -1,5 +1,5 @@
-import 'base_options.dart';
 import '../concurencies/concurencies_info.dart';
+import 'base_options.dart';
 
 /// Options specific to the Azerbaijani (`Lang.AZ`) language version.
 class AzOptions extends BaseOptions {

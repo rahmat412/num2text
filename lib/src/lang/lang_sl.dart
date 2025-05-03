@@ -237,6 +237,73 @@ class Num2TextSL implements Num2TextBase {
     return textResult;
   }
 
+  String _handleCurrency(Decimal absValue, SlOptions options) {
+    final CurrencyInfo currencyInfo = options.currencyInfo;
+    final bool round = options.round;
+    const int decimalPlaces = 2;
+
+    Decimal valueToConvert =
+        round ? absValue.round(scale: decimalPlaces) : absValue;
+
+    final BigInt mainValue = valueToConvert.truncate().toBigInt();
+    final BigInt subunitValue =
+        ((valueToConvert - valueToConvert.truncate()) * Decimal.fromInt(100))
+            .round()
+            .toBigInt();
+
+    const Gender mainGender = Gender.masculine;
+    const Gender subGender = Gender.masculine;
+
+    String mainPart = '';
+    if (mainValue > BigInt.zero) {
+      String mainText = _convertInteger(mainValue, mainGender);
+      String mainUnitName = _getCurrencyForm(
+        mainValue,
+        mainGender,
+        currencyInfo.mainUnitSingular,
+        currencyInfo.mainUnitPlural2To4!,
+        currencyInfo.mainUnitPluralGenitive!,
+      );
+      mainPart = '$mainText $mainUnitName';
+    } else if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
+      // Handle 0.00 explicitly
+      String mainText = _zero;
+      String mainUnitName = _getCurrencyForm(
+        mainValue,
+        mainGender,
+        currencyInfo.mainUnitSingular,
+        currencyInfo.mainUnitPlural2To4!,
+        currencyInfo.mainUnitPluralGenitive!,
+      );
+      mainPart = '$mainText $mainUnitName';
+    }
+
+    String subunitPart = '';
+    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
+      String subunitText = _convertInteger(subunitValue, subGender);
+      String subUnitName = _getCurrencyForm(
+        subunitValue,
+        subGender,
+        currencyInfo.subUnitSingular!,
+        currencyInfo.subUnitPlural2To4!,
+        currencyInfo.subUnitPluralGenitive!,
+      );
+      subunitPart = '$subunitText $subUnitName';
+    }
+
+    if (mainPart.isNotEmpty && subunitPart.isNotEmpty) {
+      String separator = currencyInfo.separator ?? _currencySeparator;
+      return '$mainPart $separator $subunitPart';
+    } else if (mainPart.isNotEmpty) {
+      return mainPart;
+    } else if (subunitPart.isNotEmpty) {
+      return subunitPart;
+    } else {
+      // Should ideally be caught by the main zero check, but as a fallback:
+      return "$_zero ${_getCurrencyForm(BigInt.zero, mainGender, currencyInfo.mainUnitSingular, currencyInfo.mainUnitPlural2To4!, currencyInfo.mainUnitPluralGenitive!)}";
+    }
+  }
+
   /// Formats a number as a year according to Slovenian rules.
   ///
   /// [year] The year as a `BigInt`.
@@ -258,63 +325,6 @@ class Num2TextSL implements Num2TextBase {
       yearText += " $_yearSuffixAD";
     }
     return yearText;
-  }
-
-  /// Formats a number as currency according to Slovenian rules.
-  ///
-  /// [absValue] The absolute value of the amount as `Decimal`.
-  /// [options] The `SlOptions` containing currency info and rounding rules.
-  /// Returns the currency amount in words.
-  String _handleCurrency(Decimal absValue, SlOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    const int decimalPlaces = 2; // Standard currency precision
-
-    // Round to 2 decimal places if requested, otherwise use the exact value.
-    Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main unit and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    // Use round() to avoid potential precision issues in subunit calculation
-    final BigInt subunitValue =
-        ((valueToConvert - valueToConvert.truncate()) * Decimal.fromInt(100))
-            .round()
-            .toBigInt();
-
-    // Determine gender for agreement (Euro/Cent are masculine in Slovenian).
-    // This could be parameterized in CurrencyInfo if needed for other currencies.
-    const Gender mainGender = Gender.masculine;
-    const Gender subGender = Gender.masculine;
-
-    // Convert the main unit value to words.
-    String mainText = _convertInteger(mainValue, mainGender);
-    // Get the correct grammatical form of the main unit name.
-    String mainUnitName = _getCurrencyForm(
-      mainValue,
-      mainGender,
-      currencyInfo.mainUnitSingular,
-      currencyInfo
-          .mainUnitPlural2To4!, // Slovenian uses dual for 2, plural for 3/4
-      currencyInfo.mainUnitPluralGenitive!, // Genitive Plural for 0, 5+
-    );
-    String result = '$mainText $mainUnitName';
-
-    // Add subunit part if present and defined.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      String subunitText = _convertInteger(subunitValue, subGender);
-      String subUnitName = _getCurrencyForm(
-        subunitValue,
-        subGender,
-        currencyInfo.subUnitSingular!,
-        currencyInfo.subUnitPlural2To4!, // Dual for 2, plural for 3/4
-        currencyInfo.subUnitPluralGenitive!, // Genitive Plural for 0, 5+
-      );
-      // Use the separator from CurrencyInfo or the default ("in").
-      String separator = currencyInfo.separator ?? _currencySeparator;
-      result += ' $separator $subunitText $subUnitName';
-    }
-    return result;
   }
 
   /// Determines the correct grammatical form (declension) of a currency unit name

@@ -7,99 +7,82 @@ import '../options/lv_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_lv}
-/// The Latvian language (Lang.LV) implementation for converting numbers to words.
+/// Converts numbers to Latvian words (`Lang.LV`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Latvian word representation following standard Latvian grammar and vocabulary.
+/// Implements [Num2TextBase] for Latvian. Handles various numeric types,
+/// converting them into Latvian words following grammatical rules for number
+/// agreement and pluralization.
 ///
-/// Capabilities include handling cardinal numbers, currency (using [LvOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (standard scale).
-/// It handles specific pluralization rules for scale words and the behavior of 'viens' (one).
-/// Invalid inputs result in a fallback message.
+/// Features:
+/// - Cardinal numbers (e.g., "viens simts divdesmit trīs").
+/// - Currency formatting (handles singular/plural forms for units based on number ending).
+/// - Year formatting (can add "p.m.ē."/ "m.ē." suffixes).
+/// - Negative numbers (prefix "mīnus").
+/// - Decimals (using "komats" or "punkts").
+/// - Large numbers using standard scale (tūkstotis/tūkstoši, miljons/miljoni...).
 ///
-/// Behavior can be customized using [LvOptions].
+/// Customization is available via [LvOptions]. Returns fallback string on error.
 /// {@endtemplate}
-///
-/// Example usage:
-/// ```dart
-/// final converter = Num2Text(initialLang: Lang.LV);
-/// print(converter.convert(123)); // Output: "viens simts divdesmit trīs"
-/// print(converter.convert(1000)); // Output: "viens tūkstotis"
-/// print(converter.convert(2000)); // Output: "divi tūkstoši"
-/// print(converter.convert(1.5)); // Output: "viens komats pieci"
-/// print(converter.convert(1.5, options: const LvOptions(decimalSeparator: DecimalSeparator.point))); // Output: "viens punkts pieci"
-/// print(converter.convert(123.45, options: const LvOptions(currency: true))); // Output: "viens simts divdesmit trīs eiro un četrdesmit pieci centi"
-/// print(converter.convert(1999, options: const LvOptions(format: Format.year))); // Output: "viens tūkstotis deviņi simti deviņdesmit deviņi"
-/// print(converter.convert(-5)); // Output: "mīnus pieci"
-/// ```
 class Num2TextLV implements Num2TextBase {
-  /// The word used for the decimal point when [DecimalSeparator.point] or
-  /// [DecimalSeparator.period] is specified.
-  static const String _point = "punkts";
+  // --- Constants ---
+  static const String _point = "punkts"; // Decimal point
+  static const String _comma = "komats"; // Decimal comma
+  static const String _and =
+      "un"; // Conjunction "and", default currency separator
 
-  /// The default word used for the decimal separator ([DecimalSeparator.comma]).
-  static const String _comma = "komats";
-
-  /// The word used to connect main and subunit currency values.
-  static const String _and = "un";
-
-  /// Latvian words for numbers 0 through 19.
+  /// Words for numbers 0-19.
   static const List<String> _wordsUnder20 = [
-    "nulle", // 0
-    "viens", // 1
-    "divi", // 2
-    "trīs", // 3
-    "četri", // 4
-    "pieci", // 5
-    "seši", // 6
-    "septiņi", // 7
-    "astoņi", // 8
-    "deviņi", // 9
-    "desmit", // 10
-    "vienpadsmit", // 11
-    "divpadsmit", // 12
-    "trīspadsmit", // 13
-    "četrpadsmit", // 14
-    "piecpadsmit", // 15
-    "sešpadsmit", // 16
-    "septiņpadsmit", // 17
-    "astoņpadsmit", // 18
-    "deviņpadsmit", // 19
+    "nulle",
+    "viens",
+    "divi",
+    "trīs",
+    "četri",
+    "pieci",
+    "seši",
+    "septiņi",
+    "astoņi",
+    "deviņi",
+    "desmit",
+    "vienpadsmit",
+    "divpadsmit",
+    "trīspadsmit",
+    "četrpadsmit",
+    "piecpadsmit",
+    "sešpadsmit",
+    "septiņpadsmit",
+    "astoņpadsmit",
+    "deviņpadsmit",
   ];
 
-  /// Latvian words for tens (20, 30, ..., 90). Index corresponds to the tens digit (index 2 = twenty).
+  /// Words for tens (20, 30,..., 90).
   static const List<String> _wordsTens = [
-    "", // 0 (unused)
-    "", // 10 (handled by _wordsUnder20)
-    "divdesmit", // 20
-    "trīsdesmit", // 30
-    "četrdesmit", // 40
-    "piecdesmit", // 50
-    "sešdesmit", // 60
-    "septiņdesmit", // 70
-    "astoņdesmit", // 80
-    "deviņdesmit", // 90
+    "",
+    "",
+    "divdesmit",
+    "trīsdesmit",
+    "četrdesmit",
+    "piecdesmit",
+    "sešdesmit",
+    "septiņdesmit",
+    "astoņdesmit",
+    "deviņdesmit",
   ];
 
-  /// Latvian words for hundreds (100, 200, ..., 900). Index corresponds to the hundreds digit.
-  /// Note the plural form for 200+.
+  /// Words for hundreds (100, 200,..., 900).
   static const List<String> _wordsHundreds = [
-    "", // 0 (unused)
-    "viens simts", // 100
-    "divi simti", // 200
-    "trīs simti", // 300
-    "četri simti", // 400
-    "pieci simti", // 500
-    "seši simti", // 600
-    "septiņi simti", // 700
-    "astoņi simti", // 800
-    "deviņi simti", // 900
+    "",
+    "viens simts",
+    "divi simti",
+    "trīs simti",
+    "četri simti",
+    "pieci simti",
+    "seši simti",
+    "septiņi simti",
+    "astoņi simti",
+    "deviņi simti",
   ];
 
-  /// Latvian scale words (thousands, millions, etc.).
-  /// Maps scale index (1=10^3, 2=10^6, ...) to a list containing
-  /// the singular and plural forms.
+  /// Standard scale words (thousand, million...). [Singular, Plural]
   static const Map<int, List<String>> _scaleWords = {
     1: ["tūkstotis", "tūkstoši"], // 10^3
     2: ["miljons", "miljoni"], // 10^6
@@ -109,310 +92,281 @@ class Num2TextLV implements Num2TextBase {
     6: ["kvintiljons", "kvintiljoni"], // 10^18
     7: ["sekstiljons", "sekstiljoni"], // 10^21
     8: ["septiljons", "septiljoni"], // 10^24
-    // Add more scales if needed
+    // Add more scales if needed (oktiljons, noniljons...)
   };
 
-  /// Converts the given [number] to its Latvian word representation.
+  /// Processes the given [number] into Latvian words.
   ///
-  /// - [number]: The number to convert. Can be an `int`, `double`, `String`, `BigInt`, or `Decimal`.
-  /// - [options]: Allows specifying language-specific formatting (e.g., currency, year).
-  ///   Uses [LvOptions] for Latvian-specific settings.
-  /// - [fallbackOnError]: Provides a custom string to return if conversion fails;
-  ///   otherwise, returns a default error message ("Nav skaitlis").
+  /// {@macro num2text_base_process_intro}
+  /// {@macro num2text_base_process_options}
+  /// Uses [LvOptions] for customization (currency, year format, decimals, AD/BC).
+  /// {@macro num2text_base_process_errors}
+  /// Returns [fallbackOnError] or Latvian default "Nav Skaitlis" on failure.
   ///
-  /// Handles special double values like `infinity` and `NaN`.
+  /// @param number The number to convert.
+  /// @param options Optional [LvOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Latvian words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
     final LvOptions lvOptions =
         options is LvOptions ? options : const LvOptions();
-    final String errorFallback = fallbackOnError ?? "Nav skaitlis";
+    final String errorFallback =
+        fallbackOnError ?? "Nav Skaitlis"; // Default "Not a Number"
 
-    // Handle special double values immediately
     if (number is double) {
-      if (number.isInfinite) {
-        return number.isNegative ? "Negatīva bezgalība" : "Bezgalība";
-      }
-      if (number.isNaN) {
-        return errorFallback;
-      }
+      if (number.isInfinite)
+        return number.isNegative ? "Negatīva Bezgalība" : "Bezgalība";
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal for consistent handling
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    // Handle invalid or null input
-    if (decimalValue == null) {
-      return errorFallback;
-    }
-
-    // Handle zero separately for potential currency formatting
     if (decimalValue == Decimal.zero) {
-      if (lvOptions.currency) {
-        // Use plural form for zero currency as per convention
-        final zeroUnit = lvOptions.currencyInfo.mainUnitPlural ??
-            lvOptions.currencyInfo.mainUnitSingular;
-        return "${_wordsUnder20[0]} $zeroUnit";
-      } else {
-        return _wordsUnder20[0]; // "nulle"
-      }
+      // Zero currency needs special handling (plural unit name).
+      if (lvOptions.currency) return _handleCurrency(Decimal.zero, lvOptions);
+      return _wordsUnder20[0]; // "nulle"
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-
     String textResult;
 
-    // Apply special formatting based on options
     if (lvOptions.format == Format.year) {
-      // Year format does not typically include subunits or decimal parts
-      textResult = _handleStandardNumber(absValue.truncate(), lvOptions);
-      // Add negative prefix *after* conversion if the original year was negative
-      if (isNegative) {
-        textResult = "${lvOptions.negativePrefix} $textResult";
-      }
-      // Note: LvOptions doesn't currently have includeAD, so AD/BC suffixes are not added.
+      // Years use standard integer conversion; suffixes added here.
+      textResult = _convertInteger(absValue.truncate().toBigInt());
+      if (isNegative)
+        textResult += " p.m.ē."; // pirms mūsu ēras (BC)
+      else if (lvOptions.includeAD) textResult += " m.ē."; // mūsu ērā (AD)
     } else {
-      // Handle currency or standard number formats
       if (lvOptions.currency) {
         textResult = _handleCurrency(absValue, lvOptions);
       } else {
         textResult = _handleStandardNumber(absValue, lvOptions);
       }
-
-      // Add negative prefix if the original number was negative
       if (isNegative) {
         textResult = "${lvOptions.negativePrefix} $textResult";
       }
     }
 
-    // Return the final result, trimming any potential leading/trailing whitespace
     return textResult.trim();
   }
 
-  /// Formats the absolute [absValue] as currency according to [options].
+  /// Converts a non-negative [Decimal] value to Latvian currency words.
   ///
-  /// Splits the number into main units and subunits (cents).
-  /// Converts both parts to words and joins them using the currency names
-  /// and separator defined in [LvOptions.currencyInfo].
+  /// Uses [LvOptions.currencyInfo]. Handles singular/plural forms for main
+  /// and subunits based on Latvian grammar rules (number ending in 1, except 11).
   ///
-  /// - [absValue]: The absolute (non-negative) decimal value.
-  /// - [options]: The Latvian options containing currency details.
-  /// Returns the currency representation in words.
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options ([LvOptions]).
+  /// @return Currency value as Latvian words.
   String _handleCurrency(Decimal absValue, LvOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    // Use the absolute value for currency calculation
-    final Decimal valueToConvert = absValue;
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    // Calculate the fractional part accurately
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Convert fractional part to subunits (e.g., cents)
-    final BigInt subunitValue =
-        (fractionalPart * Decimal.fromInt(100)).truncate().toBigInt();
+    final CurrencyInfo info = options.currencyInfo;
+    // Rounding is not applied by default here, assuming precise input or caller handles it.
+    final Decimal val = absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    // Calculate subunit value (e.g., cents), rounding ensures correct value for 0.xx amounts.
+    final BigInt subVal =
+        ((val - val.truncate()) * Decimal.fromInt(100)).round().toBigInt();
 
-    // Convert the main value to words
-    final String mainText = _convertInteger(mainValue);
-    // Determine the correct form (singular/plural) of the main unit name
-    final String mainUnitName = (mainValue == BigInt.one)
-        ? currencyInfo.mainUnitSingular
-        : currencyInfo.mainUnitPlural ??
-            currencyInfo
-                .mainUnitSingular; // Fallback to singular if plural is null
+    final String? subUnitSingular = info.subUnitSingular;
+    final bool hasSubunits =
+        subUnitSingular != null; // Check if subunits are defined
+
+    // --- Latvian Pluralization Rule ---
+    // Use singular form if the number ends in 1, but IS NOT 11.
+    bool useSingular(BigInt value) {
+      return (value % BigInt.from(10) == BigInt.one) &&
+          (value % BigInt.from(100) != BigInt.from(11));
+    }
+    // ---
+
+    // Handle case 0.xx (only subunits)
+    if (mainVal == BigInt.zero && subVal > BigInt.zero && hasSubunits) {
+      final String subunitText = _convertInteger(subVal);
+      final String subUnitName = useSingular(subVal)
+          ? subUnitSingular // Assured non-null by hasSubunits check
+          : (info.subUnitPlural ??
+              subUnitSingular); // Fallback to singular if plural is null
+      return '$subunitText $subUnitName';
+    }
+
+    // Handle case 0.00 or main value > 0
+    final String mainText =
+        _convertInteger(mainVal); // Handles mainVal == 0 correctly -> "nulle"
+    final String mainUnitName = useSingular(mainVal)
+        ? info.mainUnitSingular
+        : (info.mainUnitPlural ?? info.mainUnitSingular); // Fallback
 
     String result = '$mainText $mainUnitName';
 
-    // Append subunit text if it exists
-    if (subunitValue > BigInt.zero) {
-      final String subunitText = _convertInteger(subunitValue);
-      // Determine the correct form (singular/plural) of the subunit name
-      // Assumes plural exists if singular does, and singular is not null
-      final String subUnitName = (subunitValue == BigInt.one)
-          ? currencyInfo.subUnitSingular!
-          : currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular!;
-
-      // Use the specified separator or the default "un"
-      final String separator = currencyInfo.separator ?? _and;
+    // Add subunit part if present and > 0.
+    if (hasSubunits && subVal > BigInt.zero) {
+      final String subunitText = _convertInteger(subVal);
+      final String subUnitName = useSingular(subVal)
+          ? subUnitSingular
+          : (info.subUnitPlural ?? subUnitSingular);
+      final String separator = info.separator ?? _and; // Default separator "un"
       result += ' $separator $subunitText $subUnitName';
     }
 
     return result;
   }
 
-  /// Formats the absolute [absValue] as a standard number (integer or decimal).
+  /// Converts a non-negative standard [Decimal] number to Latvian words.
   ///
-  /// Converts the integer part and, if present, the fractional part to words.
-  /// Joins the parts using the appropriate decimal separator word ("komats" or "punkts")
-  /// based on [options.decimalSeparator].
+  /// Converts integer part using [_convertInteger].
+  /// Converts fractional part digit by digit. Uses [LvOptions.decimalSeparator].
   ///
-  /// - [absValue]: The absolute (non-negative) decimal value.
-  /// - [options]: The Latvian options specifying decimal format preferences.
-  /// Returns the standard number representation in words.
+  /// @param absValue Absolute decimal value.
+  /// @param options Formatting options ([LvOptions]).
+  /// @return Number as Latvian words.
   String _handleStandardNumber(Decimal absValue, LvOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
 
-    // Convert the integer part to words.
-    // If the number is purely fractional (e.g., 0.5), represent the zero.
+    // Convert integer part. Handle case 0.xxxxx -> "nulle..."
     String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _wordsUnder20[0] // "nulle" for numbers like 0.5
+            ? _wordsUnder20[0] // "nulle"
             : _convertInteger(integerPart);
 
     String fractionalWords = '';
     if (fractionalPart > Decimal.zero) {
-      // Determine the separator word ("komats" or "punkts")
+      // Determine separator word ("komats" or "punkts").
       String separatorWord;
       switch (options.decimalSeparator) {
         case DecimalSeparator.point:
-        case DecimalSeparator.period: // Treat period and point the same
+        case DecimalSeparator.period:
           separatorWord = _point;
           break;
         case DecimalSeparator.comma:
-        default: // Default to comma
+        default:
           separatorWord = _comma;
           break;
       }
 
-      // Extract digits after the decimal point using toString() for precision
-      // and remove trailing zeros for standard representation (e.g., 1.50 -> "viens komats pieci").
-      String fractionalDigits =
-          fractionalPart.toString().substring(2); // Remove "0."
-      // Remove trailing zeros
+      // Extract fractional digits and remove trailing zeros.
+      // toString() gives scientific notation for very small/large Decimals,
+      // but substring(2) works for typical fractional parts like 0.5, 0.123.
+      String fractionalDigits = fractionalPart.toString().substring(2);
       while (fractionalDigits.endsWith('0') && fractionalDigits.length > 1) {
         fractionalDigits =
             fractionalDigits.substring(0, fractionalDigits.length - 1);
       }
-      // If only "0" remained, it means the fractional part was .000...
-      if (fractionalDigits == "0") {
-        fractionalWords = ''; // Don't append anything for zero fraction
+
+      // If only zeros remained after trimming, clear fractional part.
+      if (fractionalDigits == "0" || fractionalDigits.isEmpty) {
+        fractionalWords = '';
       } else {
-        // Convert each digit to its word representation
+        // Convert each digit to its word form (0-9).
         List<String> digitWords = fractionalDigits.split('').map((digit) {
           final int? digitInt = int.tryParse(digit);
           return (digitInt != null && digitInt >= 0 && digitInt <= 9)
               ? _wordsUnder20[digitInt]
-              : '?'; // Use '?' for invalid digits
+              : '?'; // Placeholder for unexpected characters
         }).toList();
-
         fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
       }
     }
-    // else if (integerPart > BigInt.zero && absValue.scale > 0 && absValue.isInteger) {
-    //   // This condition was present but empty. It's handled by fractionalPart being zero.
-    //   // No action needed if the number like 123.0 is passed.
-    // }
 
+    // Combine integer and fractional parts.
     return '$integerWords$fractionalWords';
   }
 
-  /// Converts a non-negative integer [n] to its Latvian word representation.
+  /// Converts a non-negative [BigInt] into Latvian words.
   ///
-  /// Handles numbers from zero up to the limits defined by [_scaleWords].
-  /// Breaks the number into chunks of three digits and converts each chunk,
-  /// adding the appropriate scale word (tūkstotis, miljons, etc.) with correct pluralization.
+  /// Handles large numbers by breaking them into chunks of 1000.
+  /// Uses singular/plural scale names (_scaleWords) based on the chunk value (1 vs >1).
   ///
-  /// - [n]: The non-negative `BigInt` to convert.
-  /// Returns the integer in words.
-  /// Throws [ArgumentError] if [n] is negative or exceeds defined scales.
+  /// @param n The non-negative integer.
+  /// @return The integer as Latvian words. Returns "nulle" if n is 0.
+  /// @throws ArgumentError if number exceeds defined scales or is negative.
   String _convertInteger(BigInt n) {
-    if (n < BigInt.zero) {
-      // This should not happen as we use absolute value, but guard anyway.
-      throw ArgumentError("Integer must be non-negative for conversion: $n");
-    }
+    if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
     if (n == BigInt.zero) return _wordsUnder20[0]; // "nulle"
 
-    // Handle numbers less than 1000 directly
-    if (n < BigInt.from(1000)) {
-      return _convertChunk(n.toInt());
-    }
+    // Handle numbers under 1000 directly.
+    if (n < BigInt.from(1000)) return _convertChunk(n.toInt());
 
     List<String> parts = [];
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleIndex = 0; // 0 = units, 1 = thousands, 2 = millions, ...
+    int scaleIndex = 0; // 0=units, 1=thousands, 2=millions...
     BigInt remaining = n;
 
-    // Process the number in chunks of 1000
+    // Process number in 3-digit chunks from right to left.
     while (remaining > BigInt.zero) {
-      // Get the last three digits (0-999)
       BigInt chunk = remaining % oneThousand;
-      // Remove the last three digits
       remaining ~/= oneThousand;
 
       if (chunk > BigInt.zero) {
-        // Convert the 3-digit chunk to words
+        // Convert the 0-999 chunk.
         String chunkText = _convertChunk(chunk.toInt());
         String scaleWord = "";
 
-        // Add scale word if applicable (thousands, millions, etc.)
+        // Get the appropriate scale word (tūkstotis/tūkstoši, miljons/miljoni...)
         if (scaleIndex > 0) {
           List<String>? scaleForms = _scaleWords[scaleIndex];
           if (scaleForms != null) {
-            // Use singular form ("tūkstotis") if chunk is 1, plural ("tūkstoši") otherwise.
+            // Use singular scale name if chunk is 1, plural otherwise.
             scaleWord = (chunk == BigInt.one) ? scaleForms[0] : scaleForms[1];
           } else {
-            // Number is too large for defined scales
             throw ArgumentError(
-                "Number too large: exceeds defined scale index $scaleIndex");
+                "Number too large: scale index $scaleIndex undefined.");
           }
         }
 
-        // Add the converted chunk and scale word to the parts list
+        // Combine chunk text and scale word (if applicable).
         if (scaleWord.isNotEmpty) {
           parts.add("$chunkText $scaleWord");
         } else {
-          // No scale word for the first chunk (0-999)
-          parts.add(chunkText);
+          parts.add(chunkText); // Units chunk has no scale word.
         }
       }
       scaleIndex++;
     }
 
-    // Join the parts in reverse order (highest scale first)
+    // Join parts in reverse order (highest scale first).
     return parts.reversed.join(' ');
   }
 
-  /// Converts a three-digit integer chunk ([n], 0-999) to its Latvian word representation.
+  /// Converts an integer between 0 and 999 into Latvian words.
   ///
-  /// Helper function for [_convertInteger].
+  /// Handles hundreds, tens, and units.
   ///
-  /// - [n]: The integer chunk (0-999) to convert.
-  /// Returns the chunk in words, or an empty string if [n] is 0.
-  /// Throws [ArgumentError] if [n] is outside the 0-999 range.
+  /// @param n Integer chunk (0-999).
+  /// @return Chunk as Latvian words. Returns empty string if n is 0.
+  /// @throws ArgumentError if n is outside 0-999.
   String _convertChunk(int n) {
-    if (n == 0) return ""; // Return empty string for zero chunk
-    if (n < 0 || n >= 1000) {
-      // Should not happen if called correctly from _convertInteger
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
-    }
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
     List<String> words = [];
     int remainder = n;
 
-    // Handle hundreds place
+    // Handle hundreds.
     if (remainder >= 100) {
       words.add(_wordsHundreds[remainder ~/ 100]);
       remainder %= 100;
     }
 
-    // Handle tens and units place
+    // Handle tens and units (1-99).
     if (remainder > 0) {
       if (remainder < 20) {
-        // Numbers 1-19 are handled directly
-        words.add(_wordsUnder20[remainder]);
+        words.add(_wordsUnder20[remainder]); // Use predefined 1-19.
       } else {
-        // Numbers 20-99
-        words.add(_wordsTens[
-            remainder ~/ 10]); // Add the tens word (divdesmit, trīsdesmit, ...)
+        words.add(
+            _wordsTens[remainder ~/ 10]); // Add tens word (e.g., "divdesmit").
         int unit = remainder % 10;
         if (unit > 0) {
-          // Add the units word if non-zero (viens, divi, ...)
-          words.add(_wordsUnder20[unit]);
+          words.add(_wordsUnder20[unit]); // Add unit word if needed.
         }
       }
     }
 
-    // Join the parts (e.g., ["viens simts", "divdesmit", "viens"]) with spaces
+    // Join parts with spaces.
     return words.join(' ');
   }
 }

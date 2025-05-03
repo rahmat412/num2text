@@ -7,87 +7,44 @@ import '../options/be_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_be}
-/// The Belarusian language (`Lang.BE`) implementation for converting numbers to words.
+/// Converts numbers to Belarusian words (`Lang.BE`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Belarusian word representation, adhering to Belarusian grammatical rules
-/// for gender and number agreement, particularly the complex declension patterns for numerals
-/// followed by nouns (like currency units or scale words like 'тысяча').
-///
-/// Capabilities include handling cardinal numbers, currency (using [BeOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (short scale names).
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [BeOptions].
+/// Implements [Num2TextBase] for Belarusian, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, years, and large numbers (short scale).
+/// Adheres to Belarusian grammar for gender and number agreement, including complex declension.
+/// Customizable via [BeOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextBE implements Num2TextBase {
-  /// The word for zero.
+  // --- Constants ---
   static const String _zero = "нуль";
-
-  /// The word for the decimal separator when using [DecimalSeparator.period] or [DecimalSeparator.point].
-  static const String _point = "кропка";
-
-  /// The word for the decimal separator when using [DecimalSeparator.comma] (default).
-  static const String _comma = "коска";
-
-  /// The suffix for years Before Christ/Before Common Era (BC/BCE). Means "да нашай эры" (before our era).
-  static const String _yearSuffixBC = "да н.э.";
-
-  /// The suffix for years Anno Domini/Common Era (AD/CE). Means "нашай эры" (of our era).
-  static const String _yearSuffixAD = "н.э.";
-
-  /// The word for infinity.
+  static const String _point = "кропка"; // Decimal separator (.)
+  static const String _comma = "коска"; // Decimal separator (,)
+  static const String _yearSuffixBC = "да н.э."; // Before our era
+  static const String _yearSuffixAD = "н.э."; // Of our era
   static const String _infinity = "Бясконцасць";
+  static const String _notANumber = "Не лік"; // Default fallback
 
-  /// The representation for "Not a Number" (NaN) or invalid input when no fallback is provided.
-  static const String _notANumber = "Не лік";
-
-  /// Words for numbers 0 through 19 (masculine form for 1 and 2).
   static const List<String> _wordsUnder20 = [
-    "нуль", // 0
-    "адзін", // 1 (masculine)
-    "два", // 2 (masculine)
-    "тры", // 3
-    "чатыры", // 4
-    "пяць", // 5
-    "шэсць", // 6
-    "сем", // 7
-    "восем", // 8
-    "дзевяць", // 9
-    "дзесяць", // 10
-    "адзінаццаць", // 11
-    "дванаццаць", // 12
-    "трынаццаць", // 13
-    "чатырнаццаць", // 14
-    "пятнаццаць", // 15
-    "шаснаццаць", // 16
-    "семнаццаць", // 17
-    "васемнаццаць", // 18
-    "дзевятнаццаць", // 19
+    // Masculine 1/2
+    "нуль", "адзін", "два", "тры", "чатыры", "пяць", "шэсць", "сем", "восем",
+    "дзевяць", "дзесяць", "адзінаццаць", "дванаццаць", "трынаццаць",
+    "чатырнаццаць",
+    "пятнаццаць", "шаснаццаць", "семнаццаць", "васемнаццаць", "дзевятнаццаць",
   ];
-
-  /// The feminine form for "one". Used for feminine nouns like "тысяча" (thousand) or "капейка" (kopeck).
   static const String _oneFem = "адна";
-
-  /// The feminine form for "two". Used for feminine nouns.
   static const String _twoFem = "дзве";
-
-  /// Words for tens (20, 30, ... 90). Index corresponds to the tens digit (index 2 = 20).
   static const List<String> _wordsTens = [
-    "", // 0 - (unused placeholder)
-    "", // 10 - (handled by _wordsUnder20)
-    "дваццаць", // 20
-    "трыццаць", // 30
-    "сорак", // 40
-    "пяцьдзясят", // 50
-    "шэсцьдзясят", // 60
-    "семдзесят", // 70
-    "восемдзесят", // 80
-    "дзевяноста", // 90
+    "",
+    "",
+    "дваццаць",
+    "трыццаць",
+    "сорак",
+    "пяцьдзясят",
+    "шэсцьдзесят",
+    "семдзесят",
+    "восемдзесят",
+    "дзевяноста",
   ];
-
-  /// Words for hundreds (100, 200, ... 900).
   static const Map<int, String> _wordsHundreds = {
     1: "сто",
     2: "дзвесце",
@@ -100,32 +57,56 @@ class Num2TextBE implements Num2TextBase {
     9: "дзевяцьсот",
   };
 
-  /// Scale words (thousand, million, etc.) with their declension forms.
-  /// Keys represent the scale level (1 = 10^3, 2 = 10^6, ...).
-  /// Values are lists containing:
-  /// - [0]: Singular Nominative (used for 1, x1) - e.g., "тысяча" (feminine), "мільён" (masculine)
-  /// - [1]: Plural Nominative/Paucal (used for 2-4, x2-x4) - e.g., "тысячы", "мільёны"
-  /// - [2]: Plural Genitive (used for 0, 5+, x0, x5-x9, 11-19, x11-x19) - e.g., "тысяч", "мільёнаў"
+  // Scale words [Singular Nominative, Plural Nominative/Paucal (2-4), Plural Genitive (0, 5+)]
   static const Map<int, List<String>> _scaleWords = {
     1: ["тысяча", "тысячы", "тысяч"], // Thousand (feminine)
     2: ["мільён", "мільёны", "мільёнаў"], // Million (masculine)
     3: ["мільярд", "мільярды", "мільярдаў"], // Billion (masculine)
     4: ["трыльён", "трыльёны", "трыльёнаў"], // Trillion (masculine)
-    5: ["квадрыльён", "квадрыльёны", "квадрыльёнаў"], // Quadrillion (masculine)
-    6: ["квінтыльён", "квінтыльёны", "квінтыльёнаў"], // Quintillion (masculine)
-    7: ["секстыльён", "секстыльёны", "секстыльёнаў"], // Sextillion (masculine)
-    8: ["септыльён", "септыльёны", "септыльёнаў"], // Septillion (masculine)
-    // Add more scales if needed
+    5: ["квадрыльён", "квадрыльёны", "квадрыльёнаў"], // Quadrillion
+    6: ["квінтыльён", "квінтыльёны", "квінтыльёнаў"], // Quintillion
+    7: ["секстыльён", "секстыльёны", "секстыльёнаў"], // Sextillion
+    8: ["септыльён", "септыльёны", "септыльёнаў"], // Septillion
   };
 
-  /// Processes the given number into its Belarusian word representation.
+  // Maps cardinal number words to their ordinal forms (used for years).
+  static const Map<String, String> _cardinalToOrdinalMap = {
+    "адзін": "першы", "адна": "першая", "два": "другі", "дзве": "другая",
+    "тры": "трэці", "чатыры": "чацвёрты", "пяць": "пяты", "шэсць": "шосты",
+    "сем": "сёмы", "восем": "восьмы", "дзевяць": "дзявяты",
+    "дзесяць": "дзесяты",
+    "адзінаццаць": "адзінаццаты", "дванаццаць": "дванаццаты",
+    "трынаццаць": "трынаццаты",
+    "чатырнаццаць": "чатырнаццаты", "пятнаццаць": "пятнаццаты",
+    "шаснаццаць": "шаснаццаты",
+    "семнаццаць": "семнаццаты", "васемнаццаць": "васемнаццаты",
+    "дзевятнаццаць": "дзевятнаццаты",
+    "дваццаць": "дваццаты", "трыццаць": "трыццаты", "сорак": "саракавы",
+    "пяцьдзясят": "пяцідзесяты", "шэсцьдзесят": "шасцідзесяты",
+    "семдзесят": "сямідзесяты",
+    "восемдзесят": "васьмідзесяты", "дзевяноста": "дзевяносты", "сто": "соты",
+    "дзвесце": "двухсоты", "трыста": "трохсоты", "чатырыста": "чатырохсоты",
+    "пяцьсот": "пяцісоты", "шэсцьсот": "шасцісоты", "семсот": "сямісоты",
+    "восемсот": "васьмісоты", "дзевяцьсот": "дзевяцісоты",
+    "тысяча": "тысячны", "мільён": "мільённы",
+    "мільярд": "мільярдны", // Ordinals for scales
+    // Add more scale ordinals if needed
+  };
+
+  /// Processes the given [number] into Belarusian words.
   ///
-  /// - [number] The number to convert (can be `int`, `double`, `BigInt`, `String`, `Decimal`).
-  /// - [options] Optional [BeOptions] to customize the conversion (e.g., currency, year format).
-  /// - [fallbackOnError] A custom string to return if conversion fails (e.g., for NaN, infinity, invalid types).
-  ///   If null, default error strings like "Не лік" or "Бясконцасць" are used.
+  /// {@template num2text_process_intro}
+  /// Normalizes input to [Decimal].
+  /// {@endtemplate}
   ///
-  /// Returns the word representation of the number in Belarusian, or an error/fallback string.
+  /// {@template num2text_process_options}
+  /// Uses [BeOptions] for customization (currency, year, decimals, AD/BC).
+  /// Defaults apply if [options] is null or not [BeOptions].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_errors}
+  /// Handles `Infinity`, `NaN`. Returns [fallbackOnError] or default error string on failure.
+  /// {@endtemplate}
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
@@ -133,415 +114,292 @@ class Num2TextBE implements Num2TextBase {
         options is BeOptions ? options : const BeOptions();
     final String errorFallback = fallbackOnError ?? _notANumber;
 
-    // Handle special double values first
     if (number is double) {
-      if (number.isInfinite) {
-        // Use specific negative infinity string from tests, not negativePrefix + infinity
+      if (number.isInfinite)
         return number.isNegative ? "Мінус бясконцасць" : _infinity;
-      }
-      if (number.isNaN) {
-        return errorFallback;
-      }
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    // Handle normalization failure
-    if (decimalValue == null) {
-      return errorFallback;
-    }
-
-    // Handle zero separately
     if (decimalValue == Decimal.zero) {
       if (beOptions.currency) {
-        // Zero currency requires the genitive plural form of the currency unit.
-        // Provide fallbacks if specific forms are missing.
-        return "$_zero ${beOptions.currencyInfo.mainUnitPluralGenitive ?? beOptions.currencyInfo.mainUnitPlural ?? beOptions.currencyInfo.mainUnitSingular}";
+        final CurrencyInfo info = beOptions.currencyInfo;
+        return "$_zero ${info.mainUnitPluralGenitive ?? info.mainUnitPlural ?? info.mainUnitSingular}"; // Zero currency uses genitive plural
+      } else if (beOptions.format == Format.year) {
+        return "нулявы"; // Zero year is ordinal
       } else {
-        // Zero in other formats is just "нуль".
         return _zero;
       }
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for core conversion logic
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-
     String textResult;
 
-    // Handle different formats
     if (beOptions.format == Format.year) {
-      // Year format has specific rules for BC/AD suffixes.
       textResult = _handleYearFormat(
           absValue.truncate().toBigInt(), beOptions, isNegative);
     } else {
-      if (beOptions.currency) {
-        // Currency format involves units and subunits with declension.
-        textResult = _handleCurrency(absValue, beOptions);
-      } else {
-        // Standard number conversion with optional decimal part.
-        textResult = _handleStandardNumber(absValue, beOptions);
-      }
-      // Add negative prefix if the original number was negative (and not year format).
+      textResult = beOptions.currency
+          ? _handleCurrency(absValue, beOptions)
+          : _handleStandardNumber(absValue, beOptions);
       if (isNegative) {
         textResult = "${beOptions.negativePrefix} $textResult";
       }
     }
-
-    // Clean up potential extra spaces.
     return textResult.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Formats a number as a year according to Belarusian rules.
-  ///
-  /// - [absYearValue] The absolute value of the year as a BigInt.
-  /// - [options] The [BeOptions] containing formatting settings.
-  /// - [isNegative] Indicates if the original year value was negative (BC/BCE).
-  ///
-  /// Returns the year formatted as text, potentially with BC/AD suffixes.
+  /// Converts an integer year to Belarusian ordinal words, adding AD/BC suffix if needed.
   String _handleYearFormat(
       BigInt absYearValue, BeOptions options, bool isNegative) {
-    // Years are typically read using masculine forms for numbers.
-    String yearText = _convertInteger(absYearValue, Gender.masculine);
+    String yearText = _convertInteger(
+        absYearValue, Gender.masculine); // Use masculine for year ordinal
+    yearText = _makeOrdinal(yearText);
 
-    if (isNegative) {
-      // Append BC/BCE suffix for negative years.
+    if (isNegative)
       yearText += " $_yearSuffixBC";
-    } else if (options.includeAD && absYearValue > BigInt.zero) {
-      // Append AD/CE suffix for positive years only if includeAD is true.
+    else if (options.includeAD && absYearValue > BigInt.zero)
       yearText += " $_yearSuffixAD";
-    }
+
     return yearText;
   }
 
-  /// Formats a number as currency according to Belarusian rules.
-  ///
-  /// - [absValue] The absolute value of the amount.
-  /// - [options] The [BeOptions] containing currency settings.
-  ///
-  /// Returns the currency value formatted as text with main and subunit names properly declined.
+  /// Converts a decimal currency value to Belarusian words with declined units.
   String _handleCurrency(Decimal absValue, BeOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    const int decimalPlaces = 2; // Standard currency subunit precision
-    final Decimal subunitMultiplier = Decimal.fromInt(100);
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal = ((val - val.truncate()) * Decimal.fromInt(100))
+        .round(scale: 0)
+        .toBigInt();
 
-    // Round the value if requested, otherwise use the original value.
-    final Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main unit and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Ensure subunit calculation handles potential floating point inaccuracies robustly
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).round(scale: 0).toBigInt();
-
-    // Convert the main unit value to words (using masculine gender for Ruble).
-    final String mainText = _convertInteger(mainValue, Gender.masculine);
-    // Get the correctly declined form of the main currency unit name.
-    final String mainUnitName = _getCorrectForm(
-      mainValue,
-      currencyInfo.mainUnitSingular,
-      currencyInfo.mainUnitPlural2To4, // Nominative Plural/Paucal for 2-4
-      currencyInfo.mainUnitPluralGenitive, // Genitive Plural for 0, 5+
-    );
-
-    String subunitText = "";
-    String subUnitName = "";
-    // Process subunits only if they exist and a singular name is provided.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      // Convert subunit value to words (using feminine gender for Kopeck).
-      subunitText = _convertInteger(subunitValue, Gender.feminine);
-      // Get the correctly declined form of the subunit name.
-      subUnitName = _getCorrectForm(
-        subunitValue,
-        currencyInfo.subUnitSingular!,
-        currencyInfo.subUnitPlural2To4, // Nominative Plural/Paucal for 2-4
-        currencyInfo.subUnitPluralGenitive, // Genitive Plural for 0, 5+
-      );
+    String mainPart = "";
+    if (mainVal > BigInt.zero) {
+      // Ruble is masculine
+      String mainNumText = _convertInteger(mainVal, Gender.masculine);
+      String mainUnit = _getCorrectForm(mainVal, info.mainUnitSingular,
+          info.mainUnitPlural2To4, info.mainUnitPluralGenitive);
+      mainPart = '$mainNumText $mainUnit'.trim();
     }
 
-    // Combine main part. Handle zero main value specifically for currency (requires Gen. Pl. form).
-    String result;
-    if (mainValue == BigInt.zero && subunitValue > BigInt.zero) {
-      // If only subunits, state "zero" of the main unit (Gen. Pl.)
-      result =
-          "$_zero ${currencyInfo.mainUnitPluralGenitive ?? currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular}";
-    } else if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
-      // This case is handled by the top-level process method, but defensively:
-      result =
-          "$_zero ${currencyInfo.mainUnitPluralGenitive ?? currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular}";
+    String subPart = "";
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      // Kopeck is feminine
+      String subNumText = _convertInteger(subVal, Gender.feminine);
+      String subUnit = _getCorrectForm(subVal, info.subUnitSingular!,
+          info.subUnitPlural2To4, info.subUnitPluralGenitive);
+      subPart = '$subNumText $subUnit'.trim();
+    }
+
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      final String sep =
+          info.separator?.trim() ?? ""; // Separator usually omitted or space
+      return '$mainPart${sep.isNotEmpty ? " $sep " : " "}$subPart';
+    } else if (mainPart.isNotEmpty) {
+      return mainPart;
+    } else if (subPart.isNotEmpty) {
+      return subPart; // Handles 0.xx cases
     } else {
-      result = '$mainText $mainUnitName';
+      // Zero case handled in process, this is a fallback
+      return "$_zero ${info.mainUnitPluralGenitive ?? info.mainUnitPlural ?? info.mainUnitSingular}";
     }
-
-    // Add subunit part if present.
-    if (subunitText.isNotEmpty) {
-      // Determine separator. Default to space if null.
-      final String separator = currencyInfo.separator ?? " ";
-      // Add space around separator only if separator itself isn't just spaces.
-      final String separatorPrefix = (separator.trim().isEmpty) ? "" : " ";
-      final String separatorSuffix = (separator.trim().isEmpty) ? "" : " ";
-
-      result +=
-          '$separatorPrefix$separator$separatorSuffix$subunitText $subUnitName';
-    }
-
-    return result;
   }
 
-  /// Handles standard number conversion, including the decimal part if present.
-  /// Removes trailing zeros from the decimal part.
-  ///
-  /// - [absValue] The absolute value of the number.
-  /// - [options] The [BeOptions] containing decimal separator settings.
-  ///
-  /// Returns the number formatted as text, including the fractional part if applicable.
+  /// Converts a standard decimal number to Belarusian words.
   String _handleStandardNumber(Decimal absValue, BeOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
+    bool useFractionalNaming = options.decimalSeparator ==
+        DecimalSeparator.comma; // Default comma implies "цэлая/сотых" style
 
-    // Convert integer part, but use "нуль" if integer is zero and there's a fractional part.
-    String integerWords =
-        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _zero
-            : _convertInteger(
-                integerPart,
-                Gender.masculine,
-              ); // Default to masculine for standalone numbers.
-
+    // Convert integer part (use masculine for standalone numbers)
+    String integerWords = _convertInteger(integerPart, Gender.masculine);
     String fractionalWords = '';
-    // Process fractional part only if it's greater than zero and the number is not an integer.
-    if (fractionalPart > Decimal.zero && !absValue.isInteger) {
-      // Determine the separator word based on options.
-      String separatorWord;
-      switch (options.decimalSeparator) {
-        case DecimalSeparator.point:
-        case DecimalSeparator.period:
-          separatorWord = _point;
-          break;
-        case DecimalSeparator.comma:
-        default: // Default to comma if null or comma specified
-          separatorWord = _comma;
-          break;
-      }
 
-      // Extract fractional digits as a string reliably.
+    if (fractionalPart > Decimal.zero && !absValue.isInteger) {
+      String separatorWord;
       String fractionalDigits = absValue.toString().split('.').last;
 
-      // Remove trailing zeros to match test expectations (e.g., 1.50 -> "пяць").
-      fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
+      if (useFractionalNaming) {
+        separatorWord = _getCorrectForm(integerPart, "цэлая", "цэлыя", "цэлых");
+        final BigInt fractionalValue = BigInt.parse(fractionalDigits);
+        final String fractionalNumWords = _convertInteger(fractionalValue,
+            Gender.feminine); // Use feminine for suffix agreement
+        final String suffix =
+            _getFractionalSuffix(fractionalValue, fractionalDigits.length);
 
-      // Convert each remaining fractional digit to its word representation.
-      if (fractionalDigits.isNotEmpty) {
-        List<String> digitWords = fractionalDigits.split('').map((digit) {
-          final int? digitInt = int.tryParse(digit);
-          // Use words 0-9 for digits.
-          return (digitInt != null && digitInt >= 0 && digitInt <= 9)
-              ? _wordsUnder20[digitInt]
-              : '?'; // Fallback for unexpected characters
-        }).toList();
-        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+        if (suffix.isNotEmpty) {
+          fractionalWords = ' $separatorWord $fractionalNumWords $suffix';
+        } else {
+          useFractionalNaming = false; // Fallback if precision suffix not found
+        }
       }
-      // If fractionalDigits becomes empty after removing zeros, fractionalWords remains empty.
+
+      // Handle digit reading (point/period or fallback from comma)
+      if (!useFractionalNaming) {
+        separatorWord = (options.decimalSeparator == DecimalSeparator.point ||
+                options.decimalSeparator == DecimalSeparator.period)
+            ? _point
+            : _comma;
+        fractionalDigits = fractionalDigits.replaceAll(
+            RegExp(r'0+$'), ''); // Trim trailing zeros
+        if (fractionalDigits.isNotEmpty) {
+          List<String> digitWords = fractionalDigits.split('').map((d) {
+            final int? i = int.tryParse(d);
+            return (i != null && i >= 0 && i <= 9) ? _wordsUnder20[i] : '?';
+          }).toList();
+          fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+        }
+      }
     }
 
-    // Ensure no leading/trailing whitespace.
+    // Adjust "one" gender if integer part is 1 and fractional naming is used
+    if (integerPart == BigInt.one &&
+        useFractionalNaming &&
+        fractionalWords.isNotEmpty) {
+      integerWords = _oneFem;
+    }
+    // Adjust "zero" text if integer part is 0
+    if (integerPart == BigInt.zero && fractionalWords.isNotEmpty) {
+      integerWords = useFractionalNaming
+          ? _zero
+          : ""; // Omit zero before "кропка/коска" + digits
+    }
+
     return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a large integer (BigInt) into its Belarusian word representation.
-  ///
-  /// Handles numbers by breaking them into chunks of three digits (thousands, millions, etc.)
-  /// and applying the correct scale words with appropriate declension and gender.
-  ///
-  /// - [n] The non-negative integer to convert.
-  /// - [gender] The grammatical gender to use for the number 1 and 2 in the lowest chunk (units/tens/hundreds).
-  ///   Gender for higher chunks is determined by the scale word (e.g., "тысяча" is feminine).
-  ///
-  /// Returns the integer as Belarusian words.
+  /// Converts a non-negative integer to Belarusian words, handling gender and declension.
   String _convertInteger(BigInt n, Gender gender) {
-    if (n == BigInt.zero) return _zero; // Return "нуль" for zero.
-    if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
-
-    // Handle numbers under 1000 directly using the chunk converter.
-    if (n < BigInt.from(1000)) {
-      return _convertChunk(n.toInt(), gender);
-    }
+    if (n == BigInt.zero) return _zero;
+    if (n < BigInt.zero) throw ArgumentError("Negative input: $n");
+    if (n < BigInt.from(1000)) return _convertChunk(n.toInt(), gender);
 
     final List<String> parts = [];
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleLevel = 0; // 0: units, 1: thousands, 2: millions, ...
+    int scaleLevel = 0;
     BigInt remaining = n;
 
-    // Process the number in chunks of 1000 (right to left).
     while (remaining > BigInt.zero) {
-      // Get the current chunk (0-999).
       final int chunk = (remaining % oneThousand).toInt();
-      remaining ~/= oneThousand; // Move to the next chunk
+      remaining ~/= oneThousand;
 
       if (chunk > 0) {
-        String chunkText;
-        String scaleWord = "";
         final List<String>? scaleNames = _scaleWords[scaleLevel];
-
-        // Determine the gender for the current chunk based on the scale word.
-        // The 'thousand' scale (level 1) is feminine ("тысяча"). Others are masculine.
-        final bool isFeminineScale = scaleLevel == 1;
-        final Gender chunkGender = (scaleLevel > 0 && isFeminineScale)
-            ? Gender.feminine // Use feminine for "тысяча" scale
-            : Gender
-                .masculine; // Use masculine for other scales (мільён, etc.) or the units chunk if not specified
-
-        // Determine the gender for the number word itself within the chunk.
-        // For scale level 0 (units), use the provided context gender.
-        // For higher levels, use the gender dictated by the scale noun.
+        // Determine gender for number words based on scale: тысяча (fem), others (masc)
+        final Gender chunkGender =
+            (scaleLevel == 1) ? Gender.feminine : Gender.masculine;
+        // Use context gender only for the lowest chunk (0), otherwise use scale gender
         final Gender numberWordGender =
             (scaleLevel == 0) ? gender : chunkGender;
+        String chunkText = _convertChunk(chunk, numberWordGender);
 
-        // Convert the chunk number (1-999) to words using the appropriate gender for 1/2.
-        chunkText = _convertChunk(chunk, numberWordGender);
-
-        // Get the appropriate scale word (тысяча, мільён, etc.) if applicable.
+        String scaleWord = "";
         if (scaleLevel > 0 && scaleNames != null) {
-          // Determine the correct declined form of the scale word based on the chunk value.
           scaleWord = _getCorrectForm(
-            BigInt.from(chunk),
-            scaleNames[0], // Singular Nominative
-            scaleNames[1], // Plural Nominative/Paucal
-            scaleNames[2], // Plural Genitive
-          );
-
-          // Combine chunk text and scale word.
-          // Special cases for 1 and 2: "тысяча" (not "адна тысяча"), "дзве тысячы", "мільён", "два мільёны".
-          if (chunk == 1 && scaleLevel == 1) {
-            // 1000: Omit "адна", use scale word directly.
-            chunkText = scaleWord;
-          } else if (chunk == 1 && scaleLevel > 1) {
-            // 1,000,000: Omit "адзін", use scale word directly.
-            chunkText = scaleWord;
-          } else {
-            // Combine number and scale word for other cases.
-            chunkText = "$chunkText $scaleWord";
-          }
+              BigInt.from(chunk), scaleNames[0], scaleNames[1], scaleNames[2]);
+          chunkText = "$chunkText $scaleWord";
         }
-        // Insert the processed part at the beginning of the list.
         parts.insert(0, chunkText.trim());
-      } else if (remaining > BigInt.zero) {
-        // Insert placeholder for zero chunk if higher scales exist, to maintain structure.
-        parts.insert(0, "");
       }
       scaleLevel++;
     }
-
-    // Join the processed parts with spaces. Filter out empty placeholders.
-    return parts.where((part) => part.isNotEmpty).join(' ').trim();
+    return parts.join(' ').trim();
   }
 
-  /// Converts a three-digit number (chunk) into its Belarusian word representation.
-  ///
-  /// - [n] The number to convert (must be 0-999).
-  /// - [gender] The grammatical gender to use for the words "адзін"/"адна" (one) and "два"/"дзве" (two).
-  ///
-  /// Returns the chunk number as Belarusian words, or an empty string if n is 0.
+  /// Converts an integer 0-999 to Belarusian words, respecting gender for 1 and 2.
   String _convertChunk(int n, Gender gender) {
-    if (n == 0) {
-      return ""; // Return empty for zero chunk; caller handles scale words.
-    }
-    if (n < 0 || n >= 1000) {
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
-    }
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
     final List<String> words = [];
     int remainder = n;
 
-    // Handle hundreds place.
     if (remainder >= 100) {
-      final int hundredDigit = remainder ~/ 100;
-      words.add(_wordsHundreds[hundredDigit]!);
+      words.add(_wordsHundreds[remainder ~/ 100]!);
       remainder %= 100;
     }
 
-    // Handle tens and units place (0-99).
     if (remainder > 0) {
-      // Add space between hundreds and tens/units if needed (handled by join).
       if (remainder < 20) {
-        // Numbers 1-19: Use gender-specific forms for 1 and 2.
-        if (remainder == 1) {
+        if (remainder == 1)
           words.add(gender == Gender.feminine ? _oneFem : _wordsUnder20[1]);
-        } else if (remainder == 2) {
+        else if (remainder == 2)
           words.add(gender == Gender.feminine ? _twoFem : _wordsUnder20[2]);
-        } else {
+        else
           words.add(_wordsUnder20[remainder]);
-        }
       } else {
-        // Numbers 20-99: Combine tens word and unit word.
-        final int tensDigit = remainder ~/ 10;
+        words.add(_wordsTens[remainder ~/ 10]);
         final int unitDigit = remainder % 10;
-        words.add(_wordsTens[tensDigit]);
         if (unitDigit > 0) {
-          // Use gender-specific forms for 1 and 2 in the units place.
-          if (unitDigit == 1) {
+          if (unitDigit == 1)
             words.add(gender == Gender.feminine ? _oneFem : _wordsUnder20[1]);
-          } else if (unitDigit == 2) {
+          else if (unitDigit == 2)
             words.add(gender == Gender.feminine ? _twoFem : _wordsUnder20[2]);
-          } else {
+          else
             words.add(_wordsUnder20[unitDigit]);
-          }
         }
       }
     }
-
-    // Join the parts (e.g., ["сто", "дваццаць", "адзін"]) with spaces.
     return words.join(' ');
   }
 
-  /// Selects the correct grammatical form of a noun (like currency or scale word)
-  /// based on the preceding number, following Belarusian declension rules.
-  ///
-  /// - [number] The number determining the noun form.
-  /// - [singularForm] The nominative singular form (used for 1, x1).
-  /// - [paucalForm] The nominative plural (paucal) form (used for 2-4, x2-x4). Can be null if same as genitive or singular.
-  /// - [pluralGenitiveForm] The genitive plural form (used for 0, 5+, x0, x5-x9, 11-19, x11-x19). Can be null if same as singular.
-  ///
-  /// Returns the appropriate declined noun form. Provides fallbacks if specific forms are null.
-  String _getCorrectForm(
-    BigInt number,
-    String singularForm,
-    String? paucalForm, // Form for 2, 3, 4
-    String? pluralGenitiveForm, // Form for 0, 5+
-  ) {
-    // Default fallbacks: if paucal is missing, use genitive; if genitive is missing, use singular.
+  /// Selects the correct grammatical form of a noun based on the preceding number.
+  /// Follows Belarusian declension rules (1=Nom.Sg, 2-4=Nom.Pl/Paucal, 0/5+=Gen.Pl).
+  String _getCorrectForm(BigInt number, String singularForm, String? paucalForm,
+      String? pluralGenitiveForm) {
     final String effectivePaucal =
         paucalForm ?? pluralGenitiveForm ?? singularForm;
     final String effectiveGenitive = pluralGenitiveForm ?? singularForm;
 
-    // Use genitive plural for zero.
     if (number == BigInt.zero) return effectiveGenitive;
 
-    // Use absolute value for rule checking.
     final BigInt absNumber = number.abs();
-    // Need last digits for rules. Use toInt() safely after modulo.
     final int lastDigit = (absNumber % BigInt.from(10)).toInt();
     final int lastTwoDigits = (absNumber % BigInt.from(100)).toInt();
 
-    // Rule for 11-19: Use genitive plural.
-    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) {
-      return effectiveGenitive;
-    }
-    // Rule for numbers ending in 1 (but not 11): Use nominative singular.
-    else if (lastDigit == 1) {
-      return singularForm;
-    }
-    // Rule for numbers ending in 2, 3, 4 (but not 12, 13, 14): Use nominative plural (paucal).
-    else if (lastDigit >= 2 && lastDigit <= 4) {
-      return effectivePaucal;
-    }
-    // Rule for numbers ending in 0, 5, 6, 7, 8, 9: Use genitive plural.
-    else {
-      return effectiveGenitive;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return effectiveGenitive;
+    if (lastDigit == 1) return singularForm;
+    if (lastDigit >= 2 && lastDigit <= 4) return effectivePaucal;
+    return effectiveGenitive;
+  }
+
+  /// Converts the last word of a cardinal number string to its ordinal form.
+  String _makeOrdinal(String cardinalText) {
+    if (cardinalText.isEmpty) return "";
+    final parts = cardinalText.split(' ');
+    final lastWord = parts.last;
+    final ordinalLastWord =
+        _cardinalToOrdinalMap[lastWord] ?? lastWord; // Fallback if not in map
+    parts[parts.length - 1] = ordinalLastWord;
+    return parts.join(' ');
+  }
+
+  /// Gets the appropriate declined suffix for fractional parts (tenths, hundredths, etc.).
+  String _getFractionalSuffix(BigInt fractionalValue, int precision) {
+    switch (precision) {
+      case 1:
+        return _getCorrectForm(
+            fractionalValue, "дзясятая", "дзясятыя", "дзясятых");
+      case 2:
+        return _getCorrectForm(fractionalValue, "сотая", "сотыя", "сотых");
+      case 3:
+        return _getCorrectForm(
+            fractionalValue, "тысячная", "тысячныя", "тысячных");
+      case 4:
+        return _getCorrectForm(fractionalValue, "дзесяцітысячная",
+            "дзесяцітысячныя", "дзесяцітысячных");
+      case 5:
+        return _getCorrectForm(
+            fractionalValue, "статысячная", "статысячныя", "статысячных");
+      case 6:
+        return _getCorrectForm(
+            fractionalValue, "мільённая", "мільённыя", "мільённых");
+      default:
+        return ""; // Unsupported precision
     }
   }
 }

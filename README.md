@@ -1,11 +1,11 @@
-# Num2Text
+# Num2Text 0.0.3
 
 [![pub package](https://img.shields.io/pub/v/num2text.svg)](https://pub.dev/packages/num2text)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) <!-- Choose your license -->
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A versatile Dart library for converting numbers (integers, doubles, BigInt, Decimal) into their word representations (cardinal form) across a wide range of languages.
+Dart library for converting numbers (integers, doubles, BigInt, Decimal, Numeric String) into their word representations (cardinal form) across a wide range of languages.
 
-**Currently supports 69 languages!**
+**Currently supports up to 69 languages!**
 
 ## Features
 
@@ -27,7 +27,7 @@ Add this to your `pubspec.yaml` dependencies:
 
 ```yaml
 dependencies:
-  num2text: ^0.0.1 # Use the latest version
+  num2text: ^0.0.3 # Use the latest version
   decimal: ^2.3.3 # Optional dependency
 ```
 
@@ -39,7 +39,6 @@ Import the library:
 
 ```dart
 import 'package:num2text/num2text.dart';
-import 'package:decimal/decimal.dart'; // If using Decimal directly
 ```
 
 Create an instance and convert:
@@ -87,11 +86,11 @@ print(num2text(2024, options: ViOptions(format: Format.year)));
 
 // Spanish with Euro currency
 num2text.setLang(Lang.ES);
-print(num2text(15.50, options: EsOptions(
+print(num2text(1.50, options: EsOptions(
   currency: true,
   currencyInfo: CurrencyInfo.eurEs, // Use Euro (Spanish) info
 )));
-// Output: quince euros con cincuenta céntimos
+// Output: un euro con cincuenta céntimos
 
 // Polish with Złoty currency (demonstrates complex plurals)
 num2text.setLang(Lang.PL);

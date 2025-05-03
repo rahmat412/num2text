@@ -1,51 +1,58 @@
-# Developer's Note (Regarding `num2text` Package)
+# Developer's Note on the `num2text` Package
 
 Hello!
 
-Thank you for checking out the `num2text` package. This note is intended to provide some important context about its development process and current state.
+Thank you for exploring the `num2text` package. This note is intended to provide important context regarding its development journey, current state, and how the community can help improve it.
 
-**1. Developer Background & AI Assistance:**
+**1. Development Context: Background & AI Assistance**
 
-As the primary developer, I want to be transparent that I am relatively new to Dart and Flutter development (junior level). To tackle the complexity of supporting 69 languages, I utilized AI language models Gemini extensively during the development process. These tools were instrumental in:
+As the primary developer, I want to be upfront that I am relatively new to Dart and Flutter development (early-intermediate level). To tackle the ambitious scope of supporting **69 languages**, I leaned heavily on AI language models like Gemini throughout the development process. These AI tools were invaluable for:
 
-- Generating boilerplate code for language implementations and options classes.
-- Providing initial translations and grammatical structures for number words and currency info across various languages.
-- Assisting with documentation and test case generation.
+- Generating foundational code structures for language implementations and configuration options.
+- Providing initial drafts of number word translations and currency information across diverse languages.
+- Assisting with documentation and generating initial test case ideas.
 
-While I reviewed and tested the generated code, the sheer volume and linguistic diversity mean that my personal expertise doesn't cover all languages included.
+While I have reviewed and implemented tests based on this generated code, the sheer volume and linguistic complexity mean that my personal expertise does not cover all 69 languages included in the package.
 
-**2. Package Status & Potential Inaccuracies:**
+**2. Current State (Version 0.0.3) & Known Limitations**
 
-This is an **early release (version 0.0.1)**. Although a significant number of tests have been implemented and pass for basic conversions, the library has **not undergone rigorous linguistic review or real-world validation** across all 69 languages.
+This package is currently in an **early release phase (version 0.0.3)**. Significant effort has gone into implementing the core logic and a comprehensive set of tests (compared to 0.0.1), leading to improved accuracy for many basic conversions. However, despite these advancements:
 
-Therefore, it's highly possible that:
+- The library has **not yet undergone rigorous linguistic review or extensive real-world validation** across _all_ 69 languages by native speakers or language experts.
+- The implementations heavily rely on the AI's initial linguistic models, which may not capture all nuances.
 
-- **Linguistic nuances** might be incorrect.
-- **Complex grammatical rules** (like gender agreement, case declension, specific plural forms in Slavic languages, vigesimal systems, etc.) may have errors or simplifications.
-- **Currency formatting conventions** might not perfectly match all regional standards.
-- **Edge cases** might not be handled correctly.
+Therefore, it is highly probable that the library contains **inaccuracies**, particularly in the following areas:
 
-**Users are strongly advised to carefully verify the output of this library, especially for critical applications or for languages they have proficiency in, before relying on it.**
+- **Linguistic Nuances:** Subtle differences in phrasing or number word usage in specific contexts.
+- **Complex Grammatical Rules:** Handling of gender agreement, case declension, complex plural forms (especially in languages like Slavic or Baltic), irregular forms, or unique numbering systems (like vigesimal systems).
+- **Edge Cases:** Handling of extremely large numbers, numbers close to limits, or specific cultural number usages might be incorrect.
 
-**3. Open Invitation for Improvement & Contributions:**
+🚨 **Important Warning to Users:** 🚨
+Given the breadth of language support and the early stage of development, users are **strongly urged** to carefully verify the output of this library, especially for critical applications (e.g., financial) or for languages where high accuracy is non-negotiable. Relying solely on the package's output without independent verification is not recommended at this stage.
 
-This project is released under the MIT license with the explicit intention of being a **starting point**. I wholeheartedly encourage the community to build upon this foundation.
+**3. Contributing & Helping Improve `num2text`**
 
-- **Clone & Fork:** Please feel free to clone the repository, fork it, and create your own enhanced versions.
-- **Contribute:** If you have expertise in a particular language and notice errors or areas for improvement, your contributions (Issues, Pull Requests) would be invaluable and are warmly welcomed on the [GitHub repository](https://github.com/vemines/num2text).
-- **Feedback:** Any feedback regarding inaccuracies or suggestions for improvement is appreciated.
+This project is released under the permissive MIT license with the explicit goal of being a **community-driven starting point**. Your contributions are incredibly valuable in making this library more robust and accurate.
 
-**Important Note on Issues & Pull Requests:**
+- **Clone & Fork:** Feel free to clone the repository, fork it, and experiment or build upon it.
+- **Contribute via GitHub:** Issues and Pull Requests are warmly welcomed on the [GitHub repository](https://github.com/vemines/num2text). Whether it's reporting a bug, suggesting an enhancement, or submitting a code fix, your input is needed.
 
-- **Language Expertise:** Please understand that even with explanations, I may not fully grasp the intricate grammatical logic of every language.
-- **Require Test Cases:** To effectively verify fixes and prevent regressions, **please include concrete test cases with expected results** when submitting Issues or Pull Requests related to incorrect language output. This means providing code examples like:
-  ```dart
-  // In your Issue description or PR test file:
-  expect(converter.convert(123, options: SomeOptions(...)), equals("correct expected output in the language"));
-  expect(converter.convert(specific_edge_case_number), equals("correct edge case output"));
-  ```
-  Seeing the expected output helps me visually confirm the correction, even if the underlying linguistic rules are complex for me to fully internalize. Contributions with clear test cases are much easier to review and merge confidently.
+**How You Can Help Most Effectively (Especially with Linguistic Fixes): Provide Test Cases!**
 
-My hope is that this library, even in its current state, can serve as a useful foundation for developers needing number-to-text conversion, and that collaboration can make it more robust and accurate over time.
+Correcting language-specific output errors is challenging for a developer who doesn't have native or expert proficiency in every language. The **most impactful way** you can contribute, report an issue, or propose a fix for incorrect linguistic output is by **providing concrete examples with the correct expected result**.
 
-Thank you for your understanding and potential contributions!
+Please include:
+
+- The specific number(s) that produce incorrect output.
+- The language code and any options used.
+- The _actual_ output you are getting (if possible).
+- The **correct expected output** for that number in that language/context.
+
+Including code examples demonstrating the incorrect input and the expected correct output is ideal, for instance:
+
+```dart
+// In your Issue description or PR test file:
+final converter = Num2Text(initialLang: Lang.XX);
+expect(converter.convert(123), equals("correct expected output in language XX"));
+expect(converter.convert(specific_edge_case_number, options: SomeOptions(...)), equals("correct edge case output for language XX"));
+```

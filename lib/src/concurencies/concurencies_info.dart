@@ -258,7 +258,7 @@ class CurrencyInfo {
     mainUnitPlural:
         "eura", // 0, 2+ (Gen. Pl. form often used, covers multiple cases)
     subUnitSingular: "cent", // 1 (Nom. Sg.)
-    subUnitPlural: "centa", // 0, 2+ (Gen. Pl. form often used)
+    subUnitPlural: "centi", // 0, 2+ (Gen. Pl. form often used)
     separator: "i", // "i" (and)
   );
 
@@ -402,7 +402,6 @@ class CurrencyInfo {
   static const CurrencyInfo irr = CurrencyInfo(
     mainUnitSingular: "ریال", // Rial (singular/plural same)
     mainUnitPlural: "ریال",
-    // No common official subunit currently in practical use (Dinar is historical).
     separator: "و", // "va" (and)
   );
 

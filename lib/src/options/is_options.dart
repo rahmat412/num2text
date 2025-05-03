@@ -16,11 +16,19 @@ class IsOptions extends BaseOptions {
   /// Defaults to [CurrencyInfo.isk] (Icelandic Króna). Subunits (aurar) are deprecated.
   final CurrencyInfo currencyInfo;
 
+  /// Specifies the grammatical [Gender] for number words 1-4.
+  /// - `Gender.masculine`: "einn", "tveir", "þrír", "fjórir" (Default for standalone integers)
+  /// - `Gender.feminine`: "ein", "tvær", "þrjár", "fjórar" (Used for feminine nouns like "króna")
+  /// - `Gender.neuter`: "eitt", "tvö", "þrjú", "fjögur" (Used for neuter nouns, years, decimals, abstract counting)
+  /// If `null`, the converter determines the gender based on context (e.g., currency, decimal) or defaults to masculine.
+  final Gender? gender;
+
   /// Creates Icelandic-specific options.
   const IsOptions({
     this.includeAD = false,
     this.negativePrefix = "mínus",
     this.currencyInfo = CurrencyInfo.isk,
+    this.gender, // Added gender property
     super.currency = false,
     super.format, // Inherited: special format context (e.g., Format.year)
     super.decimalSeparator = DecimalSeparator.comma, // Default word: "komma"

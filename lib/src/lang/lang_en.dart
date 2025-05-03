@@ -7,48 +7,24 @@ import '../options/en_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_en}
-/// The English language (`Lang.EN`) implementation for converting numbers to words.
+/// Converts numbers to English words (`Lang.EN`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their English word representation following standard English grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [EnOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (short scale).
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [EnOptions].
+/// Implements [Num2TextBase] for English, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, years, and large numbers (short scale).
+/// Customizable via [EnOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextEN implements Num2TextBase {
-  // --- Constants for English number words ---
-
-  /// The word for "hundred".
+  // --- Constants ---
   static const String _hundred = "hundred";
-
-  /// The word for "zero".
   static const String _zero = "zero";
-
-  /// The default word for the decimal separator ("point").
   static const String _point = "point";
-
-  /// The alternative word for the decimal separator ("comma").
   static const String _comma = "comma";
-
-  /// The word "and", used optionally between hundreds and tens/units (British English style).
   static const String _and = "and";
-
-  /// The conjunction used between main and sub-units in currency formatting (" and ").
-  /// Note the surrounding spaces for correct formatting.
-  static const String _currencyConjunction = " and ";
-
-  /// The suffix for years Before Christ (BC).
+  static const String _currencyConjunction =
+      " and "; // Separator for currency units.
   static const String _yearSuffixBC = "BC";
+  static const String _yearSuffixAD = "AD";
 
-  /// The suffix for years Anno Domini (AD) or Common Era (CE).
-  static const String _yearSuffixAD =
-      "AD"; // Adjusted from "AD" to standard "AD" for clarity
-
-  /// Words for numbers 0 through 19.
   static const List<String> _wordsUnder20 = [
     "zero",
     "one",
@@ -71,11 +47,9 @@ class Num2TextEN implements Num2TextBase {
     "eighteen",
     "nineteen",
   ];
-
-  /// Words for tens (20, 30, ..., 90). Index corresponds to the tens digit (e.g., index 2 = "twenty").
   static const List<String> _wordsTens = [
-    "", // 0 (placeholder)
-    "", // 1 (placeholder)
+    "",
+    "",
     "twenty",
     "thirty",
     "forty",
@@ -85,307 +59,194 @@ class Num2TextEN implements Num2TextBase {
     "eighty",
     "ninety",
   ];
-
-  /// Scale words (thousand, million, billion, etc.) using the short scale system.
-  /// Index corresponds to the power of 1000 (e.g., index 1 = 1000^1 = thousand).
   static const List<String> _scaleWords = [
-    "", // 1000^0 (units)
-    "thousand",
-    "million",
-    "billion",
-    "trillion",
-    "quadrillion",
-    "quintillion",
-    "sextillion",
-    "septillion",
-    "octillion", // Added more scales
-    "nonillion",
-    "decillion",
-    "undecillion",
-    "duodecillion",
-    "tredecillion",
-    "quattuordecillion",
-    "quindecillion",
+    // Short scale (powers of 1000)
+    "", "thousand", "million", "billion", "trillion", "quadrillion",
+    "quintillion", "sextillion", "septillion", "octillion", "nonillion",
+    "decillion", "undecillion", "duodecillion", "tredecillion",
+    "quattuordecillion", "quindecillion",
   ];
 
-  /// Processes the given [number] and converts it into its English word representation.
+  /// Processes the given [number] into English words.
   ///
   /// {@template num2text_process_intro}
-  /// Handles various numeric types (`int`, `double`, `BigInt`, `Decimal`, `String`)
-  /// by first normalizing them to a [Decimal] using [Utils.normalizeNumber].
+  /// Normalizes input (`int`, `double`, `BigInt`, `Decimal`, `String`) to [Decimal].
   /// {@endtemplate}
   ///
   /// {@template num2text_process_options}
-  /// The [options] parameter, if provided and of type [EnOptions], allows customization:
-  /// - `currency`: Formats the number as currency using [EnOptions.currencyInfo].
-  /// - `format`: Applies specific formatting (e.g., [Format.year]).
-  /// - `decimalSeparator`: Specifies the word for the decimal point ([DecimalSeparator.period] (default "point"), [DecimalSeparator.comma]/"comma", etc.).
-  /// - `negativePrefix`: Sets the prefix for negative numbers (default "minus").
-  /// - `includeAnd`: Uses British English style ("one hundred and one") if true.
-  /// - `includeAD`: Adds era suffixes ("AD"/"BC") for years if `format` is [Format.year].
-  /// - `round`: Rounds the number before conversion (mainly for currency).
-  /// If `options` is null or not an [EnOptions] instance, default English options are used.
+  /// Uses [EnOptions] for customization (currency, year format, decimals, 'and', AD/BC, rounding).
+  /// Defaults apply if [options] is null or not [EnOptions].
   /// {@endtemplate}
   ///
   /// {@template num2text_process_errors}
-  /// Handles special double values:
-  /// - `double.infinity` -> "Infinity"
-  /// - `double.negativeInfinity` -> "Negative Infinity"
-  /// - `double.nan` -> Returns [fallbackOnError] ?? "Not a Number".
-  /// For null input or non-numeric types, returns [fallbackOnError] ?? "Not a Number".
+  /// Handles `Infinity`, `NaN`. Returns [fallbackOnError] or "Not A Number" on failure.
   /// {@endtemplate}
   ///
-  /// @param number The number to convert (e.g., `123`, `45.67`, `BigInt.parse('1000000')`).
-  /// @param options Optional language-specific settings ([EnOptions]).
-  /// @param fallbackOnError Optional custom string to return on conversion errors.
-  /// @return The English word representation of the number, or an error string.
+  /// @param number The number to convert.
+  /// @param options Optional [EnOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as English words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have the correct options type or use defaults.
     final EnOptions enOptions =
         options is EnOptions ? options : const EnOptions();
-    final String errorFallback =
-        fallbackOnError ?? "Not a Number"; // Default error message
+    final String errorFallback = fallbackOnError ?? "Not A Number";
 
-    // Handle special double values early.
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? "Negative Infinity" : "Infinity";
-      }
-      if (number.isNaN) {
-        return errorFallback;
-      }
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal for consistent handling.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    // If normalization fails, return the fallback string.
-    if (decimalValue == null) {
-      return errorFallback;
-    }
-
-    // Handle the specific case of zero.
     if (decimalValue == Decimal.zero) {
-      if (enOptions.currency) {
-        // Zero currency needs the plural unit name (e.g., "zero dollars").
-        return "$_zero ${enOptions.currencyInfo.mainUnitPlural ?? enOptions.currencyInfo.mainUnitSingular}";
-      } else {
-        // Zero is just "zero" for standard numbers and years.
-        return _zero;
-      }
+      return enOptions.currency
+          ? "$_zero ${enOptions.currencyInfo.mainUnitPlural ?? enOptions.currencyInfo.mainUnitSingular}"
+          : _zero;
     }
 
-    // Determine sign and get the absolute value for processing.
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-
-    // Dispatch to specialized handlers based on format options.
     if (enOptions.format == Format.year) {
-      // Year formatting handles its own sign (BC/AD).
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), enOptions);
     } else {
-      // Handle currency or standard number conversion for the absolute value.
-      if (enOptions.currency) {
-        textResult = _handleCurrency(absValue, enOptions);
-      } else {
-        textResult = _handleStandardNumber(absValue, enOptions);
-      }
-
-      // Prepend the negative prefix if the original number was negative.
+      textResult = enOptions.currency
+          ? _handleCurrency(absValue, enOptions)
+          : _handleStandardNumber(absValue, enOptions);
       if (isNegative) {
         textResult = "${enOptions.negativePrefix} $textResult";
       }
     }
 
-    // Clean up potential double spaces before returning
     return textResult.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// Handles formatting a number as a calendar year.
+  /// Converts an integer year to English words following common conventions.
   ///
-  /// Implements common English conventions for reading years:
-  /// - 1100-1999: Read as pairs of digits (e.g., 1984 -> "nineteen eighty-four", 1900 -> "nineteen hundred").
-  /// - 2000-2009: Read as "two thousand (and) X" (e.g., 2005 -> "two thousand five" or "two thousand and five").
-  /// - 2010-2099: Read as pairs of digits (e.g., 2024 -> "twenty twenty-four").
-  /// - Other years: Read as standard cardinal numbers.
-  /// - Negative years are suffixed with "BC".
-  /// - Positive years are suffixed with "AD" only if [EnOptions.includeAD] is true.
-  /// - The use of "and" (for 2000-2009) depends on [EnOptions.includeAnd].
+  /// Handles 1100-1999, 2000-2009, 2010-2099 specifically. Appends AD/BC if requested.
+  /// Uses [EnOptions.includeAnd] for 2000-2009 range.
   ///
-  /// @param year The integer representation of the year.
-  /// @param options The [EnOptions] to use for formatting (specifically `includeAD` and `includeAnd`).
-  /// @return The year formatted as English words.
+  /// @param year The integer year.
+  /// @param options Formatting options ([EnOptions]).
+  /// @return The year as English words.
   String _handleYearFormat(int year, EnOptions options) {
     final bool isNegative = year < 0;
     final int absYear = isNegative ? -year : year;
-
     String yearText;
 
-    if (absYear == 0) {
-      // While year 0 doesn't exist in Gregorian/Julian calendars, handle it numerically.
+    if (absYear == 0)
       yearText = _zero;
-    } else if (absYear >= 1100 && absYear < 2000) {
-      // Handle years like 19xx, 18xx, etc.
-      final int highPartInt = absYear ~/ 100; // e.g., 19
-      final int lowPartInt = absYear % 100; // e.g., 84 or 00
-      // Convert the century part (e.g., "nineteen")
-      final String highText = _convertInteger(BigInt.from(highPartInt), false);
-
-      if (lowPartInt == 0) {
-        // e.g., 1900 -> "nineteen hundred"
-        yearText = "$highText $_hundred";
-      } else {
-        // e.g., 1984 -> "nineteen eighty-four"
-        // e.g., 1905 -> "nineteen hundred and five" or "nineteen hundred five"
-        // For years, "and" is usually only inserted if the last part is < 10 and includeAnd is true.
-        // American English typically says "nineteen oh five". British might say "nineteen hundred and five".
-        // The current implementation doesn't produce "oh".
+    else if (absYear >= 1100 && absYear < 2000) {
+      final int high = absYear ~/ 100, low = absYear % 100;
+      final String highText = _convertInteger(BigInt.from(high), false);
+      if (low == 0)
+        yearText = "$highText $_hundred"; // e.g., nineteen hundred
+      else {
         final String lowText =
-            _convertInteger(BigInt.from(lowPartInt), options.includeAnd);
-
-        if (lowPartInt < 10 && options.includeAnd) {
-          // Common British reading for 1905
-          yearText = "$highText $_hundred $_and $lowText";
-        } else if (lowPartInt < 10 && !options.includeAnd) {
-          // Common US reading for 1905 might be "nineteen oh five" or "nineteen five".
-          // Current logic results in "nineteen hundred five", matching some interpretations.
-          yearText = "$highText $_hundred $lowText";
-        } else {
-          // For years like 1984, "and" is not typically used before "eighty-four".
-          yearText = "$highText $lowText"; // e.g., "nineteen eighty-four"
-        }
+            _convertInteger(BigInt.from(low), options.includeAnd);
+        if (low < 10 && options.includeAnd)
+          yearText =
+              "$highText $_hundred $_and $lowText"; // e.g., nineteen hundred and five
+        else if (low < 10 && !options.includeAnd)
+          yearText =
+              "$highText $_hundred $lowText"; // e.g., nineteen hundred five
+        else
+          yearText = "$highText $lowText"; // e.g., nineteen eighty-four
       }
     } else if (absYear >= 2000 && absYear < 2010) {
-      // Handle years like 200x
-      final int lowPartInt = absYear % 100; // e.g., 5 for 2005
-      if (lowPartInt == 0) {
-        // 2000 -> "two thousand"
-        yearText = _convertInteger(BigInt.from(absYear), options.includeAnd);
-      } else {
-        // e.g., 2005 -> "two thousand (and) five"
+      final int low = absYear % 100;
+      if (low == 0)
+        yearText = _convertInteger(
+            BigInt.from(absYear), options.includeAnd); // two thousand
+      else {
         final String highText =
-            _convertInteger(BigInt.from(2000), false); // "two thousand"
-        final String lowText =
-            _convertInteger(BigInt.from(lowPartInt), false); // "five"
+            _convertInteger(BigInt.from(2000), false); // two thousand
+        final String lowText = _convertInteger(BigInt.from(low), false); // five
         final String connector = options.includeAnd ? " $_and " : " ";
-        yearText = "$highText$connector$lowText";
+        yearText = "$highText$connector$lowText"; // two thousand (and) five
       }
     } else if (absYear >= 2010 && absYear < 2100) {
-      // Handle years like 20xx where xx >= 10
-      // e.g., 2024 -> "twenty twenty-four"
-      final int highPartInt = absYear ~/ 100; // e.g., 20
-      final int lowPartInt = absYear % 100; // e.g., 24
-      // Convert parts independently, "and" is not used here.
+      // e.g., twenty twenty-four
       final String highText =
-          _convertInteger(BigInt.from(highPartInt), false); // "twenty"
-      final String lowText =
-          _convertInteger(BigInt.from(lowPartInt), false); // "twenty-four"
+          _convertInteger(BigInt.from(absYear ~/ 100), false);
+      final String lowText = _convertInteger(BigInt.from(absYear % 100), false);
       yearText = "$highText $lowText";
     } else {
-      // Default to standard number conversion for other years (e.g., 1066, 2150).
-      // Use includeAnd based on options for consistency.
+      // Default conversion for other years
       yearText = _convertInteger(BigInt.from(absYear), options.includeAnd);
     }
 
-    // Append era suffixes.
-    if (isNegative) {
+    if (isNegative)
       yearText += " $_yearSuffixBC";
-    } else if (options.includeAD && absYear > 0) {
-      // Only add AD if requested and year is not 0.
-      yearText += " $_yearSuffixAD";
-    }
+    else if (options.includeAD && absYear > 0) yearText += " $_yearSuffixAD";
 
     return yearText;
   }
 
-  /// Handles formatting a number as a currency value.
+  /// Converts a non-negative [Decimal] to English currency words.
   ///
-  /// Separates the number into main units (e.g., dollars) and subunits (e.g., cents).
-  /// Uses singular/plural forms from [EnOptions.currencyInfo].
-  /// Joins main and subunits with " and " (or the separator from [CurrencyInfo]).
-  /// Optionally rounds the number to 2 decimal places if [EnOptions.round] is true.
+  /// Uses [EnOptions.currencyInfo] for unit names. Rounds if [EnOptions.round] is true.
+  /// Separates main and subunits (e.g., dollars, cents).
   ///
-  /// @param absValue The absolute (non-negative) decimal value of the currency.
-  /// @param options The [EnOptions] containing currency info and rounding preference.
-  /// @return The currency value formatted as English words.
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options ([EnOptions]).
+  /// @return Currency value as English words.
   String _handleCurrency(Decimal absValue, EnOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    const int decimalPlaces = 2; // Standard for most currencies
-    final Decimal subunitMultiplier =
-        Decimal.fromInt(100); // Assuming 100 subunits per main unit
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal =
+        ((val - Decimal.fromBigInt(mainVal)) * Decimal.fromInt(100))
+            .round(scale: 0)
+            .toBigInt();
 
-    // Round the value if requested, otherwise use as is.
-    final Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Calculate subunit value carefully from the fractional part.
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).truncate().toBigInt();
-
-    // Convert the main value to words. 'includeAnd' is determined by EnOptions for the overall number.
-    final String mainText = _convertInteger(mainValue, options.includeAnd);
-    // Determine the correct unit name (singular or plural).
-    final String mainUnitName = (mainValue == BigInt.one)
-        ? currencyInfo.mainUnitSingular
-        : currencyInfo.mainUnitPlural ??
-            currencyInfo
-                .mainUnitSingular; // Fallback to singular if plural is null
-
-    String result = '$mainText $mainUnitName';
-
-    // Add subunit part if it exists.
-    if (subunitValue > BigInt.zero) {
-      // Convert subunit value to words.
-      final String subunitText =
-          _convertInteger(subunitValue, options.includeAnd);
-      // Determine the correct subunit name.
-      final String subUnitName;
-      if (subunitValue == BigInt.one) {
-        subUnitName = currencyInfo.subUnitSingular ??
-            ''; // Handle potentially missing subunit name
-      } else {
-        subUnitName =
-            currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular ?? '';
-      }
-
-      // Get the separator from CurrencyInfo or default to " and ".
-      final String separator = currencyInfo.separator?.isNotEmpty ?? false
-          ? ' ${currencyInfo.separator!} '
-          : _currencyConjunction;
-
-      // Append the subunit part only if a subunit name exists.
-      if (subUnitName.isNotEmpty) {
-        result += '$separator$subunitText $subUnitName';
-      }
+    String mainPart = '';
+    if (mainVal > BigInt.zero) {
+      final String name = (mainVal == BigInt.one)
+          ? info.mainUnitSingular
+          : (info.mainUnitPlural ?? info.mainUnitSingular);
+      mainPart = '${_convertInteger(mainVal, options.includeAnd)} $name';
     }
 
-    return result;
+    String subPart = '';
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      final String name = (subVal == BigInt.one)
+          ? info.subUnitSingular!
+          : (info.subUnitPlural ?? info.subUnitSingular!);
+      subPart =
+          '${_convertInteger(subVal, false)} $name'; // 'and' typically not used in subunit number
+    }
+
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      final String sep = info.separator?.isNotEmpty ?? false
+          ? ' ${info.separator!} '
+          : _currencyConjunction;
+      return '$mainPart$sep$subPart';
+    } else if (mainPart.isNotEmpty)
+      return mainPart;
+    else if (subPart.isNotEmpty)
+      return subPart; // Handle 0.xx cases
+    else
+      return "${_wordsUnder20[0]} ${info.mainUnitPlural ?? info.mainUnitSingular}"; // Zero case
   }
 
-  /// Handles formatting a standard cardinal number, including decimals.
+  /// Converts a non-negative standard [Decimal] number (non-integer) to English words.
   ///
-  /// Converts the integer part using [_convertInteger].
-  /// Converts the fractional part digit by digit (e.g., 0.45 -> "point four five").
-  /// Uses the decimal separator word specified in [EnOptions.decimalSeparator].
+  /// Converts integer and fractional parts. Uses [EnOptions.decimalSeparator] word.
+  /// Fractional part converted digit by digit.
   ///
-  /// @param absValue The absolute (non-negative) decimal value of the number.
-  /// @param options The [EnOptions] containing decimal separator and 'includeAnd' preference.
-  /// @return The number formatted as English words.
+  /// @param absValue Absolute decimal value.
+  /// @param options Formatting options ([EnOptions]).
+  /// @return Number as English words.
   String _handleStandardNumber(Decimal absValue, EnOptions options) {
-    // Separate integer and fractional parts.
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
-
-    // Convert the integer part. Use "zero" if integer is 0 but fraction exists.
     final String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
             ? _zero
@@ -393,169 +254,99 @@ class Num2TextEN implements Num2TextBase {
 
     String fractionalWords = '';
     if (fractionalPart > Decimal.zero) {
-      // Determine the separator word based on options.
-      String separatorWord;
+      String sepWord;
       switch (options.decimalSeparator) {
         case DecimalSeparator.comma:
-          separatorWord = _comma;
+          sepWord = _comma;
           break;
-        case DecimalSeparator.point: // Treat point and period the same
-        case DecimalSeparator.period:
-        default: // Default to period/point
-          separatorWord = _point;
-          break;
+        default:
+          sepWord = _point;
+          break; // Default to point/period
       }
 
-      // Get the digits after the decimal point as a string.
-      // Use toString() and split to handle the fractional part accurately.
-      // Note: Decimal.toString() might produce scientific notation for very large/small scales,
-      // but that's less likely for typical inputs handled here.
-      final String fullString = absValue.toString();
-      final int pointIndex = fullString.indexOf('.');
-      if (pointIndex != -1) {
-        String fractionalDigits = fullString.substring(pointIndex + 1);
-        // Trim trailing zeros for standard representation (e.g., 1.50 -> "one point five").
-        while (fractionalDigits.endsWith('0') && fractionalDigits.length > 1) {
-          fractionalDigits =
-              fractionalDigits.substring(0, fractionalDigits.length - 1);
+      final String fullStr = absValue.toString();
+      final int pointIdx = fullStr.indexOf('.');
+      if (pointIdx != -1) {
+        String fracDigits = fullStr.substring(pointIdx + 1);
+        while (fracDigits.endsWith('0') && fracDigits.length > 1) {
+          // Trim trailing zeros
+          fracDigits = fracDigits.substring(0, fracDigits.length - 1);
         }
-
-        // Convert each digit individually to its word representation.
-        final List<String> digitWords = fractionalDigits.split('').map((digit) {
-          final int? digitInt = int.tryParse(digit);
-          // Ensure the digit is valid (0-9).
-          return (digitInt != null && digitInt >= 0 && digitInt <= 9)
-              ? _wordsUnder20[digitInt]
-              : '?'; // Placeholder for unexpected characters
+        final List<String> digitWords = fracDigits.split('').map((d) {
+          final int? i = int.tryParse(d);
+          return (i != null && i >= 0 && i <= 9) ? _wordsUnder20[i] : '?';
         }).toList();
-
-        // Combine separator and digit words.
-        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+        fractionalWords = ' $sepWord ${digitWords.join(' ')}';
       }
     }
-
-    // Combine integer and fractional parts.
-    return '$integerWords$fractionalWords'
-        .trim(); // Trim potential leading/trailing space
+    return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a non-negative integer ([BigInt]) into its English word representation.
+  /// Converts a non-negative integer ([BigInt]) into English words using short scale.
   ///
-  /// Uses a chunking algorithm based on powers of 1000 (thousand, million, billion, etc.).
-  /// Delegates chunks of 0-999 to [_convertChunk].
-  /// The `includeAnd` flag is passed down to [_convertChunk] for potential use within chunks.
+  /// Breaks the number into chunks of 1000. Delegates chunks to [_convertChunk].
   ///
-  /// @param n The non-negative integer to convert.
-  /// @param includeAnd Whether to include "and" between hundreds and tens/units within chunks (British style).
-  /// @throws ArgumentError if [n] is negative or too large for defined scales.
-  /// @return The integer as English words.
+  /// @param n Non-negative integer.
+  /// @param includeAnd Whether to use "and" within chunks (passed to [_convertChunk]).
+  /// @throws ArgumentError if [n] is negative or too large.
+  /// @return Integer as English words.
   String _convertInteger(BigInt n, bool includeAnd) {
-    if (n < BigInt.zero) {
-      // This function expects non-negative input; sign is handled higher up.
-      throw ArgumentError("Integer must be non-negative for conversion: $n");
-    }
+    if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
     if (n == BigInt.zero) return _zero;
-
-    // Handle numbers less than 1000 directly.
-    if (n < BigInt.from(1000)) {
-      return _convertChunk(n.toInt(), includeAnd);
-    }
+    if (n < BigInt.from(1000)) return _convertChunk(n.toInt(), includeAnd);
 
     final List<String> parts = [];
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleIndex = 0; // 0=units, 1=thousand, 2=million, ...
-    BigInt remaining = n;
+    int scaleIdx = 0;
+    BigInt rem = n;
 
-    // Process the number in chunks of 1000 from right to left.
-    while (remaining > BigInt.zero) {
-      // Check if the number exceeds the defined scale words.
-      if (scaleIndex >= _scaleWords.length) {
-        throw ArgumentError(
-          "Number too large to convert (exceeds defined scale: ${_scaleWords.last}, index: $scaleIndex)",
-        );
-      }
-
-      // Get the current chunk (0-999).
-      final BigInt chunk = remaining % oneThousand;
-      // Move to the next chunk.
-      remaining ~/= oneThousand;
-
-      // If the chunk is non-zero, convert it and add the scale word.
+    while (rem > BigInt.zero) {
+      if (scaleIdx >= _scaleWords.length)
+        throw ArgumentError("Number too large");
+      final BigInt chunk = rem % oneThousand;
+      rem ~/= oneThousand;
       if (chunk > BigInt.zero) {
-        // Convert the 0-999 chunk.
         final String chunkText = _convertChunk(chunk.toInt(), includeAnd);
-        // Get the appropriate scale word (e.g., "thousand", "million").
-        final String scaleWord = scaleIndex > 0 ? _scaleWords[scaleIndex] : "";
-
-        // Combine chunk text and scale word.
-        String currentPart = chunkText;
-        if (scaleWord.isNotEmpty) {
-          currentPart += " $scaleWord";
-        }
-        parts.add(currentPart);
+        final String scaleWord = scaleIdx > 0 ? _scaleWords[scaleIdx] : "";
+        parts.add(scaleWord.isEmpty ? chunkText : '$chunkText $scaleWord');
       }
-      scaleIndex++;
+      scaleIdx++;
     }
-
-    // Join the parts in reverse order (highest scale first), ensuring single spaces.
     return parts.reversed.join(' ').trim();
   }
 
-  /// Converts an integer between 0 and 999 (inclusive) into its English word representation.
+  /// Converts an integer from 0 to 999 into English words.
   ///
-  /// Handles hundreds, tens, and units, including the optional "and"
-  /// for British English style if [includeAnd] is true. Hyphenates
-  /// compound numbers like "twenty-one".
+  /// Handles hundreds, tens, units. Uses [includeAnd] for British style.
+  /// Hyphenates compounds (e.g., "twenty-one").
   ///
-  /// @param n The integer chunk (0-999) to convert.
-  /// @param includeAnd Whether to include "and" between hundreds and tens/units (e.g., "one hundred and twenty-three").
-  /// @throws ArgumentError if [n] is outside the 0-999 range.
-  /// @return The chunk as English words, or an empty string if [n] is 0.
+  /// @param n Integer chunk (0-999).
+  /// @param includeAnd Whether to include "and" after hundreds.
+  /// @throws ArgumentError if [n] is outside 0-999.
+  /// @return Chunk as English words, or empty string if [n] is 0.
   String _convertChunk(int n, bool includeAnd) {
-    if (n == 0) {
-      return ""; // Zero is handled specially or results in empty string within larger numbers.
-    }
-    if (n < 0 || n >= 1000) {
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
-    }
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
     final List<String> words = [];
-    int remainder = n;
+    int rem = n;
 
-    // Handle hundreds part.
-    if (remainder >= 100) {
-      words.add(_wordsUnder20[remainder ~/ 100]); // e.g., "one", "two"
+    if (rem >= 100) {
+      words.add(_wordsUnder20[rem ~/ 100]);
       words.add(_hundred);
-      remainder %= 100;
-
-      // Add "and" if needed (British style) and there's a remaining part.
-      if (remainder > 0 && includeAnd) {
-        words.add(_and);
-      }
+      rem %= 100;
+      if (rem > 0 && includeAnd) words.add(_and);
     }
 
-    // Handle tens and units part (0-99).
-    if (remainder > 0) {
-      if (remainder < 20) {
-        // Numbers 1-19 are unique words.
-        words.add(_wordsUnder20[remainder]);
-      } else {
-        // Numbers 20-99.
-        final String tensWord =
-            _wordsTens[remainder ~/ 10]; // e.g., "twenty", "thirty"
-        final int unit = remainder % 10;
-
-        if (unit == 0) {
-          // Pure tens (e.g., 20, 30).
-          words.add(tensWord);
-        } else {
-          // Compound tens-units (e.g., 21, 35), hyphenated.
-          words.add("$tensWord-${_wordsUnder20[unit]}");
-        }
+    if (rem > 0) {
+      if (rem < 20)
+        words.add(_wordsUnder20[rem]);
+      else {
+        final String tens = _wordsTens[rem ~/ 10];
+        final int unit = rem % 10;
+        words.add(unit == 0 ? tens : "$tens-${_wordsUnder20[unit]}");
       }
     }
-
-    // Join the parts ("one", "hundred", ["and"], "twenty-three") with spaces.
     return words.join(' ');
   }
 }

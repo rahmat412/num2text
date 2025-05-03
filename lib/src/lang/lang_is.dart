@@ -1,116 +1,91 @@
 import 'package:decimal/decimal.dart';
 
-import '../num2text_base.dart'; // Base class contract.
-import '../options/base_options.dart'; // Base options and enums like Gender, Format.
-import '../options/is_options.dart'; // Icelandic-specific options.
-import '../utils/utils.dart'; // Utilities like number normalization.
+import '../num2text_base.dart';
+import '../options/base_options.dart';
+import '../options/is_options.dart';
+import '../utils/utils.dart';
 
 /// {@template num2text_is}
-/// The Icelandic language (`Lang.IS`) implementation for converting numbers to words.
+/// Converts numbers to Icelandic words (`Lang.IS`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Icelandic word representation following standard Icelandic grammar and vocabulary,
-/// including handling of grammatical gender for numbers 1-4.
-///
-/// Capabilities include handling cardinal numbers, currency (using [IsOptions.currencyInfo] - note: subunits are deprecated),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers using a system similar to the long scale.
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [IsOptions].
+/// Implements [Num2TextBase] for Icelandic. Handles various numeric types.
+/// Supports cardinal numbers with grammatical gender agreement (masculine, feminine, neuter),
+/// decimals, negatives, currency (ISK), and year formatting.
+/// Uses [IsOptions] for customization (e.g., explicit gender, AD/BC).
 /// {@endtemplate}
 class Num2TextIS implements Num2TextBase {
   // --- Constants ---
-
-  /// The conjunction "og" (and).
-  static const String _og = "og";
-
-  /// The word for zero ("núll").
+  static const String _og = "og"; // Conjunction "and".
   static const String _zero = "núll";
+  static const String _hundred = "hundrað"; // 100 (neuter singular).
+  static const String _hundredPlural = "hundruð"; // 200-900 (neuter plural).
+  static const String _thousand = "þúsund"; // 1000+ (neuter singular/plural).
+  static const String _pointWord = "punktur"; // Decimal separator word "point".
+  static const String _commaWord = "komma"; // Decimal separator word "comma".
+  static const String _yearSuffixBC = "fyrir Krist"; // Suffix for BC years.
+  static const String _yearSuffixAD = "e.Kr."; // Suffix for AD/CE years.
 
-  /// The word for hundred ("hundrað"). Neuter noun.
-  static const String _hundred = "hundrað";
-
-  /// The word for thousand ("þúsund"). Neuter noun.
-  static const String _thousand = "þúsund";
-
-  /// The word for the decimal separator when using a period (`.`).
-  static const String _pointWord = "punktur";
-
-  /// The word for the decimal separator when using a comma (`,`).
-  static const String _commaWord = "komma";
-
-  /// The suffix for negative years ("fyrir Krist" - Before Christ).
-  static const String _yearSuffixBC = "fyrir Krist";
-
-  /// The suffix for positive years ("eftir Krist" - After Christ). Added only if [IsOptions.includeAD] is true.
-  static const String _yearSuffixAD = "e.Kr.";
-
-  /// Gendered forms for numbers 1 through 4.
-  /// Inner list order: [Masculine, Feminine, Neuter].
+  // Gendered forms for 1-4: [masculine, feminine, neuter].
   static const List<List<String>> _genderedUnder5 = [
-    [], // 0 - Not used
+    [], // 0 handled by _zero.
     ["einn", "ein", "eitt"], // 1
     ["tveir", "tvær", "tvö"], // 2
     ["þrír", "þrjár", "þrjú"], // 3
     ["fjórir", "fjórar", "fjögur"], // 4
   ];
 
-  /// Word forms for numbers 0 and 5 through 19. Numbers 1-4 are handled by `_genderedUnder5`.
-  /// These numbers (5-19) do not change form based on gender.
+  // Numbers 5-19 (no gender agreement).
   static const List<String> _wordsUnder20 = [
-    "núll", // 0
-    "", // 1 - Handled by _genderedUnder5
-    "", // 2 - Handled by _genderedUnder5
-    "", // 3 - Handled by _genderedUnder5
-    "", // 4 - Handled by _genderedUnder5
-    "fimm", // 5
-    "sex", // 6
-    "sjö", // 7
-    "átta", // 8
-    "níu", // 9
-    "tíu", // 10
-    "ellefu", // 11
-    "tólf", // 12
-    "þrettán", // 13
-    "fjórtán", // 14
-    "fimmtán", // 15
-    "sextán", // 16
-    "sautján", // 17
-    "átján", // 18
-    "nítján", // 19
+    "núll",
+    "",
+    "",
+    "",
+    "",
+    "fimm",
+    "sex",
+    "sjö",
+    "átta",
+    "níu",
+    "tíu",
+    "ellefu",
+    "tólf",
+    "þrettán",
+    "fjórtán",
+    "fimmtán",
+    "sextán",
+    "sautján",
+    "átján",
+    "nítján",
   ];
 
-  /// Word forms for tens from 20 to 90. Index corresponds to the tens digit (index 2 = 20, index 9 = 90).
+  // Tens from 20-90 (no gender agreement).
   static const List<String> _wordsTens = [
-    "", // 0
-    "", // 10 - Covered by _wordsUnder20
-    "tuttugu", // 20
-    "þrjátíu", // 30
-    "fjörutíu", // 40
-    "fimmtíu", // 50
-    "sextíu", // 60
-    "sjötíu", // 70
-    "áttatíu", // 80
-    "níutíu", // 90
+    "",
+    "",
+    "tuttugu",
+    "þrjátíu",
+    "fjörutíu",
+    "fimmtíu",
+    "sextíu",
+    "sjötíu",
+    "áttatíu",
+    "níutíu",
   ];
 
-  /// Defines scale words (million, billion, etc.) using a system similar to long scale, including intermediate terms.
-  /// Each entry: `[Scale Value (BigInt), Singular Form, Plural Form, Grammatical Gender]`.
-  /// Ordered from highest scale downwards for processing.
+  // Large scale words: [value, singular, plural, gender]. Follows short scale.
   static final List<List<dynamic>> _scaleWords = [
-    // Value              Singular          Plural            Gender
+    // Higher scales are rare but included.
     [
       BigInt.parse('1000000000000000000000000'),
       "kvadrilljón",
       "kvadrilljónir",
-      Gender.feminine,
+      Gender.feminine
     ], // 10^24
     [
       BigInt.parse('1000000000000000000000'),
       "trilljarður",
       "trilljarðar",
-      Gender.masculine,
+      Gender.masculine
     ], // 10^21
     [
       BigInt.parse('1000000000000000000'),
@@ -135,247 +110,292 @@ class Num2TextIS implements Num2TextBase {
       "milljarður",
       "milljarðar",
       Gender.masculine
-    ], // 10^9 (Milliard)
-    [
-      BigInt.parse('1000000'),
-      "milljón",
-      "milljónir",
-      Gender.feminine
-    ], // 10^6 (Million)
+    ], // 10^9
+    [BigInt.parse('1000000'), "milljón", "milljónir", Gender.feminine], // 10^6
   ];
 
-  /// Default gender for standalone numbers (often masculine, but context can override).
-  static const Gender _defaultGender = Gender.masculine;
+  // Default genders used internally in specific contexts.
+  static const Gender _defaultGender =
+      Gender.masculine; // For standalone integers.
+  static const Gender _neuterGender =
+      Gender.neuter; // For decimals, years, counting thousands.
 
-  /// Neuter gender, commonly used for abstract counting, years, thousands, hundreds.
-  static const Gender _neuterGender = Gender.neuter;
-
-  /// {@macro num2text_base_process}
-  /// Converts the given [number] into its Icelandic word representation.
+  /// Processes the given [number] into Icelandic words.
   ///
-  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String` inputs.
-  /// Uses [IsOptions] to customize behavior like currency formatting ([IsOptions.currency], [IsOptions.currencyInfo]),
-  /// year formatting ([Format.year]), decimal separator ([IsOptions.decimalSeparator]),
-  /// and negative prefix ([IsOptions.negativePrefix]).
-  /// If `options` is not an instance of [IsOptions], default settings are used.
+  /// {@template num2text_process_intro}
+  /// Normalizes input (`int`, `double`, `BigInt`, `Decimal`, `String`) to [Decimal].
+  /// {@endtemplate}
   ///
-  /// Returns the word representation (e.g., "hundrað tuttugu og þrír", "mínus tíu komma fimm", "ein milljón").
-  /// If the input is invalid (`null`, `NaN`, `Infinity`, non-numeric string), it returns
-  /// [fallbackOnError] if provided, otherwise a default error message like "Ekki tala".
+  /// {@template num2text_process_options}
+  /// Uses [IsOptions] for customization (currency, year format, decimals, gender, AD/BC).
+  /// Determines required gender based on options or context (currency, decimals, standalone integer).
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_errors}
+  /// Handles `Infinity`, `NaN`. Returns [fallbackOnError] or "Ekki Tala" on failure.
+  /// Catches internal conversion errors and returns a generic Icelandic error message.
+  /// {@endtemplate}
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [IsOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Icelandic words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Icelandic-specific options, using defaults if none are provided.
     final IsOptions isOptions =
         options is IsOptions ? options : const IsOptions();
+    final String errorFallback =
+        fallbackOnError ?? "Ekki Tala"; // Default "Not a Number".
 
-    // Handle special non-finite double values early.
     if (number is double) {
-      if (number.isInfinite) {
-        return number.isNegative
-            ? "Neikvætt Óendanlegt"
-            : "Óendanlegt"; // Localized infinity
-      }
-      if (number.isNaN) return fallbackOnError ?? "Ekki tala"; // Not a Number
+      if (number.isInfinite)
+        return number.isNegative ? "Neikvætt Óendanlegt" : "Óendanlegt";
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input to a Decimal for precise calculations.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    // Return error if normalization failed (invalid input type or format).
-    if (decimalValue == null) return fallbackOnError ?? "Ekki tala";
-
-    // Handle the specific case of zero.
     if (decimalValue == Decimal.zero) {
-      if (isOptions.currency) {
-        // Currency format for zero (e.g., "núll krónur"). Use plural.
+      // Handle zero separately for currency.
+      if (isOptions.currency)
         return "$_zero ${isOptions.currencyInfo.mainUnitPlural ?? isOptions.currencyInfo.mainUnitSingular}";
-      }
-      // Standard "núll". Also covers year 0.
       return _zero;
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic.
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-
     String textResult;
+
     try {
-      // --- Dispatch based on format options ---
       if (isOptions.format == Format.year) {
-        // Year format needs the original integer value and negativity flag.
+        // Year format handles sign internally and uses Neuter gender.
         textResult = _handleYearFormat(
             absValue.truncate().toBigInt(), isOptions, isNegative);
-        // Note: Year format handles BC/AD suffixes internally, so negative prefix is not added here.
       } else {
-        // Handle currency or standard number format.
         final BigInt integerPart = absValue.truncate().toBigInt();
-        // Check if there's a non-zero fractional part.
         final bool hasFractionalPart =
             absValue > Decimal.fromBigInt(integerPart);
 
-        // Determine the required grammatical gender for the integer part.
-        Gender integerGender;
-        if (isOptions.currency) {
-          // Currency: Króna is feminine.
-          integerGender = Gender.feminine;
+        // Determine the target gender for the integer part. Priority order:
+        // 1. Explicit gender in options.
+        // 2. Currency (Króna is feminine).
+        // 3. Decimal number or 0.xxx (neuter).
+        // 4. Default standalone integer (masculine).
+        Gender targetGender;
+        if (isOptions.gender != null) {
+          targetGender = isOptions.gender!;
+        } else if (isOptions.currency) {
+          targetGender = Gender.feminine; // Króna is feminine.
         } else if (hasFractionalPart ||
             (integerPart == BigInt.zero && absValue > Decimal.zero)) {
-          // Standard number with fraction or starting 0.something: Use neuter.
-          integerGender = _neuterGender;
+          targetGender = _neuterGender; // Decimals treated as neuter.
         } else {
-          // Standard integer: Use default gender (masculine unless context dictates otherwise).
-          integerGender = _defaultGender;
+          targetGender = _defaultGender; // Default for integers.
         }
 
-        // Convert the integer part using the determined gender.
+        // Convert integer part using the determined gender.
+        // Handle case where integer part is 0 but fraction exists (e.g., 0.5).
         String integerText =
             (integerPart == BigInt.zero && absValue > Decimal.zero)
-                ? _zero // Handle 0.5 -> "núll komma..."
-                : _convertInteger(integerPart, integerGender);
+                ? _zero
+                : _convertInteger(integerPart, targetGender);
 
-        // Convert the fractional part if it exists.
+        // Convert fractional part if it exists.
         String fractionalText = hasFractionalPart
             ? _getFractionalPartText(absValue, isOptions)
             : "";
 
-        // Combine integer and fractional parts based on context.
+        // Combine parts based on context (currency vs standard number).
         if (isOptions.currency) {
-          // Currency: Combine number + unit name.
+          // Combine integer text with currency unit name (applying gender rules).
           String mainUnitName = (integerPart == BigInt.one)
-              ? isOptions.currencyInfo.mainUnitSingular // Singular form for 1.
-              // Plural form for 0, 2+. Fallback to singular if plural is null.
+              ? isOptions.currencyInfo.mainUnitSingular
               : (isOptions.currencyInfo.mainUnitPlural ??
                   isOptions.currencyInfo.mainUnitSingular);
           textResult = '$integerText $mainUnitName';
-          // Note: Icelandic currency (ISK) has no official subunits in circulation.
-          // Fractional part handling for currency is omitted here.
+          // ISK subunits (aurar) are ignored as they are deprecated.
         } else {
-          // Standard number: Combine integer and fractional parts.
+          // Standard number formatting.
           if (integerPart == BigInt.zero && fractionalText.isNotEmpty) {
-            // Case: 0.5 -> "núll komma fimm"
-            textResult = '$_zero $fractionalText';
+            textResult = '$_zero $fractionalText'; // e.g., "núll komma einn".
           } else if (fractionalText.isNotEmpty) {
-            // Case: 123.45 -> "hundrað tuttugu og þrír komma fjórir fimm"
-            textResult = '$integerText $fractionalText';
+            textResult =
+                '$integerText $fractionalText'; // e.g., "tveir komma fimm".
           } else {
-            // Case: 123 -> "hundrað tuttugu og þrír"
-            textResult = integerText;
+            textResult = integerText; // Integer only.
           }
         }
 
-        // Prepend the negative prefix if applicable (not for years).
+        // Prepend negative prefix if necessary.
         if (isNegative) {
           textResult = "${isOptions.negativePrefix} $textResult";
         }
       }
     } catch (e) {
-      // Catch potential errors during conversion (e.g., very large numbers).
-      // Consider logging the error: print('Icelandic conversion error: $e');
+      // Catch potential errors during conversion.
       return fallbackOnError ??
-          "Villa við umbreytingu."; // Generic error message.
+          "Villa við umbreytingu"; // Generic Icelandic error.
     }
 
-    // Clean up potential extra spaces before returning.
     return textResult.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Formats an integer as a calendar year, optionally adding BC/AD suffixes.
-  /// Includes special handling for years 1100-1999 ("X hundrað og Y") and 2000-2099 ("tvö þúsund Y").
-  /// Years use the neuter gender.
+  /// Converts a non-negative [BigInt] into Icelandic words, applying gender.
   ///
-  /// [yearValue]: The non-negative year value as BigInt.
-  /// [options]: Icelandic options, checks `includeAD`.
-  /// [originallyNegative]: Flag indicating if the original year was negative (BC).
-  /// Returns the year in words, e.g., "nítján hundrað níutíu og níu", "tvö þúsund og fimm", "hundrað fyrir Krist".
+  /// Handles large scale words (milljón, milljarður, etc.) and thousands.
+  /// Inserts "og" based on Icelandic grammatical rules.
+  /// Delegates chunks < 1000 to [_convertChunk].
+  ///
+  /// @param n The non-negative integer to convert.
+  /// @param targetGender The required grammatical gender for the final chunk (1-4).
+  /// @return The integer as Icelandic words.
+  String _convertInteger(BigInt n, Gender targetGender) {
+    if (n == BigInt.zero) return _zero;
+    if (n < BigInt.zero)
+      throw ArgumentError("Negative input to _convertInteger: $n");
+
+    if (n < BigInt.from(1000)) {
+      // Handle numbers below 1000 directly.
+      return _convertChunk(n.toInt(), targetGender);
+    }
+
+    List<String> parts = [];
+    BigInt remainder = n;
+    bool higherPartProcessed =
+        false; // Tracks if a scale word or 'þúsund' was added.
+
+    // Process large scale words (milljón and above).
+    for (final scaleInfo in _scaleWords) {
+      final BigInt scaleValue = scaleInfo[0] as BigInt;
+      if (remainder >= scaleValue) {
+        final String singName = scaleInfo[1] as String;
+        final String plurName = scaleInfo[2] as String;
+        final Gender scaleNounGender = scaleInfo[3] as Gender;
+
+        BigInt count = remainder ~/ scaleValue;
+        remainder %= scaleValue;
+
+        // Convert the count part, matching the gender of the scale noun (e.g., milljón is feminine).
+        String countText = _convertInteger(count, scaleNounGender);
+        String scaleText = (count == BigInt.one) ? singName : plurName;
+
+        parts.add("$countText $scaleText");
+        higherPartProcessed = true;
+      }
+    }
+
+    // Process thousands ("þúsund") - the count before it is always neuter.
+    final BigInt thousandValue = BigInt.from(1000);
+    if (remainder >= thousandValue || (parts.isEmpty && n >= thousandValue)) {
+      // Handle cases like 1000, 2000 or parts like 5,001,000.
+      if (remainder >= thousandValue) {
+        BigInt count = remainder ~/ thousandValue;
+        remainder %= thousandValue;
+        // Count before "þúsund" is always neuter.
+        String countText = _convertInteger(count, _neuterGender);
+        parts.add("$countText $_thousand");
+        higherPartProcessed = true;
+      }
+    }
+
+    // Process final chunk (0-999).
+    if (remainder > BigInt.zero) {
+      int finalChunkInt = remainder.toInt();
+      // Convert the final chunk using the overall target gender passed to the function.
+      String chunkText = _convertChunk(finalChunkInt, targetGender);
+
+      // Insert "og" if a higher part was processed and the final chunk is < 100.
+      // Icelandic rule: "einn milljón OG einn", "eitt þúsund OG einn", but "eitt þúsund eitt hundrað".
+      if (higherPartProcessed && finalChunkInt < 100) {
+        parts.add(_og);
+      }
+      parts.add(chunkText);
+    }
+
+    // Join parts, filtering potential empty strings.
+    return parts.where((part) => part.isNotEmpty).join(' ');
+  }
+
+  /// Converts an integer year value to Icelandic words.
+  ///
+  /// Applies specific Icelandic formatting rules for years (e.g., 1984, 2000, 2025).
+  /// Always uses Neuter gender for year conversion internally. Appends AD/BC suffixes.
+  ///
+  /// @param yearValue The absolute value of the year as BigInt.
+  /// @param options Formatting options.
+  /// @param originallyNegative Indicates if the input year was negative (for BC suffix).
+  /// @return The year as Icelandic words.
   String _handleYearFormat(
       BigInt yearValue, IsOptions options, bool originallyNegative) {
-    final BigInt absYear =
-        yearValue.abs(); // Already non-negative, but ensures consistency.
+    final BigInt absYear = yearValue.abs();
     String yearText;
 
-    // Handle special cases for BC years 1 and 100, as they don't fit the general pattern well.
-    if (originallyNegative) {
-      if (absYear == BigInt.one) {
-        return "${_getGenderedWord(1, _neuterGender)} $_yearSuffixBC"; // "eitt fyrir Krist"
-      }
-      if (absYear == BigInt.from(100))
-        return "$_hundred $_yearSuffixBC"; // "hundrað fyrir Krist"
-    }
-
-    int yearInt;
     try {
-      // Attempt to convert to int for optimized year formatting logic.
-      yearInt = absYear.toInt();
+      // Use int for typical year range checks, fallback to BigInt conversion if too large.
+      final int yearInt = absYear.toInt();
+
+      // Apply specific formatting rules based on year ranges. Always uses Neuter gender.
+      if (yearInt >= 1100 && yearInt < 2000) {
+        // e.g., 1984 -> nítján hundruð og áttatíu og fjögur.
+        int highPartInt = yearInt ~/ 100; // 11-19.
+        int lowPartInt = yearInt % 100; // 00-99.
+        // Use hundrað (sg) for 1100, hundruð (pl) for 1200+.
+        String hundredWord = (highPartInt == 11) ? _hundred : _hundredPlural;
+        String highPartText = _convertChunk(highPartInt, _neuterGender);
+        yearText = "$highPartText $hundredWord";
+        if (lowPartInt > 0) {
+          // Add "og" before the final part < 100.
+          yearText += " $_og ${_convertChunk(lowPartInt, _neuterGender)}";
+        }
+      } else if (yearInt == 2000) {
+        yearText =
+            "${_getGenderedWord(2, _neuterGender)} $_thousand"; // "tvö þúsund".
+      } else if (yearInt > 2000 && yearInt < 2100) {
+        // e.g., 2025 -> tvö þúsund tuttugu og fimm.
+        yearText =
+            "${_getGenderedWord(2, _neuterGender)} $_thousand"; // "tvö þúsund".
+        int lowPartInt = yearInt % 100;
+        if (lowPartInt > 0) {
+          // Concatenate directly, e.g., "tvö þúsund [og] tuttugu og fimm" (chunk adds internal "og").
+          yearText += " ${_convertChunk(lowPartInt, _neuterGender)}";
+        }
+      } else {
+        // Default conversion for other years (e.g., 1066).
+        yearText = _convertInteger(absYear, _neuterGender);
+      }
     } catch (e) {
-      // If year is too large for int, fall back to general integer conversion.
-      yearText = _convertInteger(absYear, _neuterGender);
-      // Append suffixes based on original sign and options.
-      if (originallyNegative) {
-        yearText += " $_yearSuffixBC";
-      } else if (options.includeAD) {
-        yearText += " $_yearSuffixAD";
-      }
-      return yearText;
-    }
-
-    // Special formatting for common year ranges (uses neuter gender).
-    if (yearInt >= 1100 && yearInt < 2000) {
-      // Format years 1100-1999 as "X hundred and Y".
-      int highPartInt = yearInt ~/ 100; // e.g., 19 for 1999
-      int lowPartInt = yearInt % 100; // e.g., 99 for 1999
-      // Convert the "19" part (neuter).
-      yearText = "${_convertChunk(highPartInt, _neuterGender)} $_hundred";
-      if (lowPartInt > 0) {
-        // Add "og" and the remaining 0-99 part (neuter).
-        yearText += " $_og ${_convertChunk(lowPartInt, _neuterGender)}";
-      }
-    } else if (absYear == BigInt.from(2000)) {
-      // Exactly 2000.
-      yearText =
-          "${_getGenderedWord(2, _neuterGender)} $_thousand"; // "tvö þúsund"
-    } else if (yearInt > 2000 && yearInt < 2100) {
-      // Format years 2001-2099 as "two thousand (and) Y".
-      yearText =
-          "${_getGenderedWord(2, _neuterGender)} $_thousand"; // "tvö þúsund"
-      int lowPartInt = yearInt % 100; // Get the 01-99 part.
-      if (lowPartInt > 0) {
-        // Add the remaining 1-99 part (neuter). Note: Icelandic often omits 'og' here.
-        yearText += " ${_convertChunk(lowPartInt, _neuterGender)}";
-      }
-    } else {
-      // Default conversion for other years (e.g., < 1100 or >= 2100).
+      // Fallback for very large years exceeding int limits.
       yearText = _convertInteger(absYear, _neuterGender);
     }
 
-    // Append suffixes based on original sign and options (excluding the special BC cases handled above).
-    if (!originallyNegative && options.includeAD && absYear > BigInt.zero) {
-      yearText += " $_yearSuffixAD";
-    } else if (originallyNegative &&
-        !(absYear == BigInt.one || absYear == BigInt.from(100))) {
-      // Add BC suffix if originally negative and not the special cases 1 or 100 BC.
+    // Append era suffixes.
+    if (originallyNegative) {
       yearText += " $_yearSuffixBC";
+    } else if (options.includeAD && absYear > BigInt.zero) {
+      yearText += " $_yearSuffixAD";
     }
 
     return yearText;
   }
 
-  /// Converts the fractional part of a [Decimal] value to words.
-  /// Reads digits individually after the separator word ("komma" or "punktur").
-  /// Fractional digits use the neuter gender.
+  /// Converts the fractional part of a [Decimal] to Icelandic words.
   ///
-  /// [value]: The Decimal number containing the fractional part.
-  /// [options]: Icelandic options, used for `decimalSeparator`.
-  /// Returns the fractional part in words, e.g., "komma fjórir fimm". Returns empty string if no fractional part.
+  /// Uses the separator word ("komma" or "punktur") from [IsOptions].
+  /// Reads digits individually, applying Neuter gender.
+  ///
+  /// @param value The full decimal value.
+  /// @param options Formatting options.
+  /// @return The fractional part as words (e.g., "komma einn tveir").
   String _getFractionalPartText(Decimal value, IsOptions options) {
     // Extract digits after the decimal point.
     String fractionalDigits = value.toString().split('.').last;
-    if (fractionalDigits.isEmpty) return ""; // No fractional part.
+    if (fractionalDigits.isEmpty) return "";
 
-    // Determine the separator word based on options.
+    // Determine separator word based on options (defaulting to comma).
     String separatorWord;
-    var separator =
-        options.decimalSeparator ?? DecimalSeparator.comma; // Default to comma.
+    var separator = options.decimalSeparator ?? DecimalSeparator.comma;
     switch (separator) {
       case DecimalSeparator.comma:
         separatorWord = _commaWord;
@@ -386,155 +406,78 @@ class Num2TextIS implements Num2TextBase {
         break;
     }
 
-    // Convert each digit character to its neuter word form.
+    // Convert each digit individually using Neuter gender.
     List<String> digitWords = fractionalDigits.split('').map((digit) {
       final int digitInt = int.parse(digit);
-      // Use _getGenderedWord to get the neuter form for digits 0-4, or the standard word.
-      return _getGenderedWord(digitInt, _neuterGender);
+      return _getGenderedWord(
+          digitInt, _neuterGender); // Digits after comma/point are neuter.
     }).toList();
 
-    // Combine separator and digit words.
     return '$separatorWord ${digitWords.join(' ')}';
   }
 
-  /// Converts a non-negative [BigInt] integer into its Icelandic word representation.
-  /// This handles large numbers by iterating through defined scales (million, milljarður, etc.)
-  /// and recursively converting the count for each scale. Uses grammatical gender appropriate for the scale noun.
+  /// Converts an integer from 1 to 999 into Icelandic words, applying gender.
   ///
-  /// [n]: The non-negative integer to convert. Must not be negative.
-  /// [targetGender]: The required grammatical gender for the *final* 0-999 chunk of the number.
-  /// Returns the integer in words, e.g., "ein milljón tvö hundruð og þrjátíu þúsund og fjögur hundruð og fimmtíu".
-  String _convertInteger(BigInt n, Gender targetGender) {
-    if (n == BigInt.zero) return _zero; // Base case: zero.
-    // Ensure input is non-negative.
-    if (n < BigInt.zero)
-      throw ArgumentError("Negative input to _convertInteger: $n");
-
-    List<String> parts = []; // Stores word parts for each scale level.
-    BigInt remainder = n;
-    bool higherPartProcessed =
-        false; // Flag to track if we need "og" before the final chunk.
-
-    // Process large scale words (milljón, milljarður, etc.) from highest to lowest.
-    for (final scaleInfo in _scaleWords) {
-      final BigInt scaleValue = scaleInfo[0] as BigInt; // Value (e.g., 10^6)
-
-      if (remainder >= scaleValue) {
-        final String singName =
-            scaleInfo[1] as String; // Singular name (e.g., "milljón")
-        final String plurName =
-            scaleInfo[2] as String; // Plural name (e.g., "milljónir")
-        final Gender scaleNounGender =
-            scaleInfo[3] as Gender; // Gender of the scale noun
-
-        // Calculate how many of this scale unit are present.
-        BigInt count = remainder ~/ scaleValue;
-        remainder %= scaleValue; // Update the remainder.
-
-        // Recursively convert the count, matching the gender of the scale noun.
-        String countText = _convertInteger(count, scaleNounGender);
-        // Choose singular or plural scale noun based on the count.
-        String scaleText = (count == BigInt.one) ? singName : plurName;
-
-        // Combine the count and the scale noun.
-        parts.add("$countText $scaleText");
-        higherPartProcessed =
-            true; // Mark that a higher scale part was processed.
-      }
-    }
-
-    // Process thousands.
-    final BigInt thousandValue = BigInt.from(1000);
-    if (remainder >= thousandValue) {
-      BigInt count = remainder ~/ thousandValue; // Number of thousands.
-      remainder %= thousandValue; // Update remainder (0-999).
-
-      // Convert the count of thousands (uses neuter gender for "þúsund").
-      String countText = _convertInteger(count, _neuterGender);
-      parts.add("$countText $_thousand"); // Combine count and "þúsund".
-      higherPartProcessed = true; // Mark that thousands were processed.
-    }
-
-    // Process the final remainder (0-999).
-    if (remainder > BigInt.zero) {
-      int finalChunkInt = remainder.toInt(); // Convert the final chunk to int.
-      // Convert the 0-999 chunk using the target gender passed to this function.
-      String chunkText = _convertChunk(finalChunkInt, targetGender);
-
-      // Add "og" (and) if a higher part was processed AND the final chunk is less than 100.
-      // Icelandic rule: "hundrað og einn", "þúsund og tveir", but "hundrað tuttugu og þrír" (og within chunk).
-      if (higherPartProcessed && finalChunkInt < 100) {
-        parts.add(_og);
-      }
-      parts.add(chunkText); // Add the final chunk text.
-    }
-
-    // Join all parts with spaces, filtering out any potentially empty strings.
-    return parts.where((part) => part.isNotEmpty).join(' ');
-  }
-
-  /// Converts a number between 1 and 999 into its Icelandic word representation.
-  /// Handles hundreds, tens, units, and the use of "og" (and). Uses gender for numbers 1-4.
+  /// Handles hundreds ("hundrað"/"hundruð") and the insertion of "og"
+  /// between hundreds and tens/units, and between tens and units.
   ///
-  /// [n]: The number to convert (must be 1 <= n < 1000).
-  /// [gender]: The required grammatical gender for the units part (1-4).
-  /// Returns the chunk in words, e.g., "hundrað", "tuttugu og einn", "fjögur hundruð og fimmtíu".
+  /// @param n The integer chunk (1-999).
+  /// @param gender The required grammatical gender for numbers 1-4 in the chunk.
+  /// @return The chunk as Icelandic words.
   String _convertChunk(int n, Gender gender) {
-    // Returns empty for 0, as it's handled elsewhere or implicitly.
-    if (n <= 0 || n >= 1000) return "";
+    if (n <= 0 || n >= 1000) return ""; // Should not happen for valid chunks.
 
-    List<String> words = []; // Stores word parts for this chunk.
+    List<String> words = [];
     int remainder = n;
-    bool hundredsProcessed = false; // Flag to track if "og" is needed.
+    bool hundredsProcessed = false;
 
-    // Process hundreds.
+    // Handle hundreds part.
     if (remainder >= 100) {
-      int hundredDigit = remainder ~/ 100; // Get the hundreds digit (1-9).
-      // Convert the digit (1-9) using neuter gender (for "hundrað").
+      int hundredDigit = remainder ~/ 100;
+      // Use "hundrað" (neuter sg) for 100, "hundruð" (neuter pl) for 200-900.
+      String hundredWord = (hundredDigit == 1) ? _hundred : _hundredPlural;
+      // The count (1-9) before hundred(s) is always Neuter.
       words.add(_getGenderedWord(hundredDigit, _neuterGender));
-      words.add(_hundred); // Add "hundrað".
-      remainder %= 100; // Update remainder (0-99).
-      hundredsProcessed = true; // Mark that hundreds were processed.
+      words.add(hundredWord);
+      remainder %= 100;
+      hundredsProcessed = true;
     }
 
-    // Process tens and units (1-99).
+    // Handle tens and units part (1-99).
     if (remainder > 0) {
-      // Add "og" (and) if hundreds were processed.
+      // Add "og" if hundreds came before.
       if (hundredsProcessed) words.add(_og);
 
-      // Handle 1-19 directly.
       if (remainder < 20) {
-        // Get the word (gendered for 1-4, standard for 5-19) using the target gender.
+        // Use the target gender for numbers 1-19.
         words.add(_getGenderedWord(remainder, gender));
       } else {
         // Handle 20-99.
-        words.add(_wordsTens[
-            remainder ~/ 10]); // Add the tens word (e.g., "tuttugu").
-        int unit = remainder % 10; // Get the unit digit.
+        words.add(_wordsTens[remainder ~/ 10]); // Tens word (e.g., "tuttugu").
+        int unit = remainder % 10;
         if (unit > 0) {
-          words.add(_og); // Add "og" between tens and units.
-          // Get the unit word (gendered for 1-4) using the target gender.
+          // Add "og" between tens and units (e.g., "tuttugu OG einn").
+          words.add(_og);
+          // Use the target gender for the unit part (1-4).
           words.add(_getGenderedWord(unit, gender));
         }
       }
     }
 
-    // Combine the collected parts.
     return words.join(' ');
   }
 
-  /// Returns the correct Icelandic word for a number 0-19, applying gender for 1-4.
+  /// Gets the Icelandic word for a number 0-19, applying gender for 1-4.
   ///
-  /// [n]: The number (0-19).
-  /// [gender]: The required grammatical gender.
-  /// Returns the word form (e.g., "einn", "ein", "eitt", "fimm"). Returns the number as string if out of range.
+  /// @param n The number (0-19).
+  /// @param gender The required grammatical gender.
+  /// @return The corresponding Icelandic word.
   String _getGenderedWord(int n, Gender gender) {
     if (n == 0) return _zero;
 
-    // Use the specific gendered list for 1-4.
+    // Apply gender rules for 1-4.
     if (n >= 1 && n <= 4) {
       int genderIndex;
-      // Map the Gender enum to the index in _genderedUnder5 lists.
       switch (gender) {
         case Gender.masculine:
           genderIndex = 0;
@@ -546,19 +489,19 @@ class Num2TextIS implements Num2TextBase {
           genderIndex = 2;
           break;
       }
-      // Perform bounds check before accessing the list.
+      // Retrieve the gendered form from the list.
       if (n < _genderedUnder5.length &&
           genderIndex < _genderedUnder5[n].length) {
         return _genderedUnder5[n][genderIndex];
       }
     }
 
-    // Use the standard list for 5-19 (and potentially 0 if called directly).
+    // Return standard word for 5-19 (or if gendered lookup failed).
     if (n >= 0 && n < _wordsUnder20.length && _wordsUnder20[n].isNotEmpty) {
       return _wordsUnder20[n];
     }
 
-    // Fallback for unexpected values (should not happen for digits 0-9).
+    // Fallback for unexpected values.
     return n.toString();
   }
 }

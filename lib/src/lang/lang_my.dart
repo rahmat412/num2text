@@ -7,436 +7,394 @@ import '../options/my_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_my}
-/// The Burmese language (`Lang.MY`) implementation for converting numbers to words.
+/// Converts numbers to Burmese words (`Lang.MY`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Burmese word representation following standard Burmese grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [MyOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers
-/// incorporating Burmese-specific scales like သိန်း (lakh), သန်း (million), and ကုဋေ (kute),
-/// alongside adopted international scale terms.
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [MyOptions].
+/// Implements [Num2TextBase] for Burmese, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, and currency.
+/// Uses the traditional Burmese numbering system (သောင်း, သိန်း, သန်း, ကုဋေ)
+/// and standard international scales (ဘီလီယံ, ထရီလီယံ, etc.) for larger numbers.
+/// Features Burmese connectors (e.g., ဆယ့်, ရာ့, ထောင့်).
+/// Customizable via [MyOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextMY implements Num2TextBase {
-  /// Word for the decimal point ("."). Burmese: "da tha ma".
-  static const String _pointWord = "ဒသမ";
+  // --- Constants ---
+  static const String _pointWord = "ဒသမ"; // Decimal separator "."
+  static const String _commaWord = "ကော်မာ"; // Decimal separator ","
+  static const String _infinityWord = "အဆုံးမရှိ"; // "Infinity"
+  static const String _nanWord = "နံပါတ်မဟုတ်ပါ"; // "Not a Number"
 
-  /// Word for the comma (",") separator. Burmese: "kaw mar". Used less commonly for decimals.
-  static const String _commaWord = "ကော်မာ";
-
-  /// Word for infinity. Burmese: "a sone ma shi".
-  static const String _infinityWord = "အဆုံးမရှိ";
-
-  /// Word for "Not a Number". Burmese: "nan par ma hote par".
-  static const String _nanWord = "နံပါတ်မဟုတ်ပါ";
-
-  /// Base digits 0-9 in Burmese words.
+  /// Digits 0-9.
   static const List<String> _wordsUnits = [
-    "သုည", // 0 - thunya
-    "တစ်", // 1 - tit
-    "နှစ်", // 2 - hnit
-    "သုံး", // 3 - thone
-    "လေး", // 4 - lay
-    "ငါး", // 5 - nga
-    "ခြောက်", // 6 - chauk
-    "ခုနစ်", // 7 - khunnit
-    "ရှစ်", // 8 - shit
-    "ကိုး", // 9 - koe
+    "သုည",
+    "တစ်",
+    "နှစ်",
+    "သုံး",
+    "လေး",
+    "ငါး",
+    "ခြောက်",
+    "ခုနစ်",
+    "ရှစ်",
+    "ကိုး",
   ];
 
-  /// Word for ten. Burmese: "hseh". Used when the unit digit is zero (e.g., 20, 30).
-  static const String _ten = "ဆယ်";
+  // --- Scale Words and Connectors ---
+  static const String _ten = "ဆယ်"; // Ten (standalone)
+  static const String _tenConnector =
+      "ဆယ့်"; // Ten (connecting form, e.g., ဆယ့်တစ်)
+  static const String _hundred = "ရာ"; // Hundred (standalone)
+  static const String _hundredConnector =
+      "ရာ့"; // Hundred (connecting form, e.g., တစ်ရာ့ငါးဆယ်)
+  static const String _thousand = "ထောင်"; // Thousand (standalone)
+  static const String _thousandConnector =
+      "ထောင့်"; // Thousand (connecting form)
+  static const String _tenThousand = "သောင်း"; // Ten Thousand (standalone)
+  static const String _tenThousandConnector =
+      "သောင်း့"; // Ten Thousand (connecting form)
+  static const String _lakh = "သိန်း"; // Lakh / Hundred Thousand (10^5)
+  static const String _million =
+      "သန်း"; // Million (10^6) - Used alongside သိန်း
+  static const String _kute = "ကုဋေ"; // Kute / Ten Million (10^7)
+  static const String _billion = "ဘီလီယံ"; // Billion (10^9)
+  static const String _trillion = "ထရီလီယံ"; // Trillion (10^12)
+  static const String _quadrillion = "ကွာဒရီလီယံ"; // Quadrillion (10^15)
+  static const String _quintillion = "ကွင်တီလီယံ"; // Quintillion (10^18)
+  static const String _sextillion = "ဆက်စတီလီယံ"; // Sextillion (10^21)
+  static const String _septillion = "ဆက်ပတီလီယံ"; // Septillion (10^24)
 
-  /// Connector word for tens. Burmese: "hse". Used when the unit digit is non-zero (e.g., 11, 21).
-  static const String _tenConnector = "ဆယ့်";
-
-  /// Word for hundred. Burmese: "yar". Used when tens and units are zero (e.g., 100, 200).
-  static const String _hundred = "ရာ";
-
-  /// Connector word for hundreds. Burmese: "yar". Used when tens or units are non-zero (e.g., 101, 110). Note: Same spelling, different usage context.
-  static const String _hundredConnector = "ရာ့";
-
-  /// Word for thousand. Burmese: "htaung". Used when lower place values are zero (e.g., 1000, 2000).
-  static const String _thousand = "ထောင်";
-
-  /// Connector word for thousands. Burmese: "htaung". Used when lower place values are non-zero (e.g., 1001, 1100). Note: Same spelling, different usage context.
-  static const String _thousandConnector = "ထောင့်";
-
-  /// Word for ten thousand (10^4). Burmese: "thaung".
-  static const String _tenThousand = "သောင်း";
-
-  /// Word for one hundred thousand (10^5), also known as Lakh. Burmese: "thein".
-  static const String _lakh = "သိန်း";
-
-  /// Word for one million (10^6). Burmese: "than".
-  static const String _million = "သန်း";
-
-  /// Word for ten million (10^7), also known as Kute/Crore. Burmese: "kute".
-  static const String _kute = "ကုဋေ";
-
-  /// Word for one billion (10^9) - using international scale term. Burmese: "bee lee yan".
-  static const String _billion = "ဘီလီယံ";
-
-  /// Word for one trillion (10^12) - using international scale term. Burmese: "htree lee yan".
-  static const String _trillion = "ထရီလီယံ";
-
-  /// Word for one quadrillion (10^15) - using international scale term. Burmese: "kwar dree lee yan".
-  static const String _quadrillion = "ကွာဒရီလီယံ";
-
-  /// Word for one quintillion (10^18) - using international scale term. Burmese: "kwin tee lee yan".
-  static const String _quintillion = "ကွင်တီလီယံ";
-
-  /// Word for one sextillion (10^21) - using international scale term. Burmese: "set tee lee yan".
-  static const String _sextillion = "ဆက်စတီလီယံ";
-
-  /// Word for one septillion (10^24) - using international scale term. Burmese: "set pa tee lee yan".
-  static const String _septillion = "ဆက်ပတီလီယံ";
-
-  /// Defines the large number scales used in Burmese, mapping the numeric value
-  /// to its corresponding word representation. Ordered from largest to smallest.
-  /// Includes both traditional Burmese units (ကုဋေ, သန်း, သိန်း, သောင်း) and
-  /// adopted international units (billion, trillion, etc.).
+  /// Defines Burmese and international scales, ordered largest to smallest for processing.
+  /// Tuple: (Scale Value, Scale Name)
   static final List<(BigInt, String)> _scales = [
-    (BigInt.parse("1000000000000000000000000"), _septillion), // 10^24
-    (BigInt.parse("1000000000000000000000"), _sextillion), // 10^21
-    (BigInt.parse("1000000000000000000"), _quintillion), // 10^18
-    (BigInt.parse("1000000000000000"), _quadrillion), // 10^15
-    (BigInt.parse("1000000000000"), _trillion), // 10^12
-    (BigInt.parse("1000000000"), _billion), // 10^9
-    (BigInt.from(10000000), _kute), // 10^7 (Ten Million / Kute / Crore)
-    (BigInt.from(1000000), _million), // 10^6 (Million)
-    (BigInt.from(100000), _lakh), // 10^5 (Hundred Thousand / Lakh)
-    (BigInt.from(10000), _tenThousand), // 10^4 (Ten Thousand)
-    // Thousand (10^3) is handled separately within _convertInteger for connector logic.
+    (BigInt.parse("1000000000000000000000000"), _septillion),
+    (BigInt.parse("1000000000000000000000"), _sextillion),
+    (BigInt.parse("1000000000000000000"), _quintillion),
+    (BigInt.parse("1000000000000000"), _quadrillion),
+    (BigInt.parse("1000000000000"), _trillion),
+    (BigInt.parse("1000000000"), _billion),
+    (BigInt.from(10000000), _kute), // 10^7
+    (BigInt.from(1000000), _million), // 10^6
+    (BigInt.from(100000), _lakh), // 10^5
+    (BigInt.from(10000), _tenThousand), // 10^4
+    // Thousand (10^3) is handled separately after these scales.
   ];
 
-  /// Processes the given [number] and converts it into Burmese words.
+  /// {@macro num2text_base_process}
+  /// Converts the given [number] into Burmese words.
   ///
-  /// This is the main entry point for the Burmese conversion.
-  /// - It normalizes the input [number] (int, double, BigInt, String, Decimal) into a [Decimal].
-  /// - Handles special cases like infinity and NaN for doubles.
-  /// - Manages the negative sign using [MyOptions.negativePrefix].
-  /// - Delegates the core conversion logic to helper methods based on [options]:
-  ///   - [_convertInteger] for year format ([Format.year]).
-  ///   - [_handleCurrency] if [MyOptions.currency] is true.
-  ///   - [_handleStandardNumber] for regular cardinal numbers (including decimals).
-  /// - Returns the final word representation or [fallbackOnError] / default error message.
+  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String`.
+  /// Uses [MyOptions] for customization (currency, decimals, negative prefix).
+  /// Returns [fallbackOnError] or a default error message on failure.
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [MyOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Burmese words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Burmese-specific options, using defaults if none are provided.
     final MyOptions myOptions =
         options is MyOptions ? options : const MyOptions();
+    final String errorWord = fallbackOnError ?? _nanWord;
 
-    // Handle special double values before normalization.
     if (number is double) {
       if (number.isInfinite) {
         return number.isNegative
-            ? "${myOptions.negativePrefix.trim()} $_infinityWord" // Add negative prefix if needed
+            ? "${myOptions.negativePrefix.trim()} $_infinityWord"
             : _infinityWord;
       }
-      if (number.isNaN)
-        return fallbackOnError ?? _nanWord; // Return fallback or NaN word
+      if (number.isNaN) return errorWord;
     }
 
-    // Normalize the input number to Decimal for precision.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
-    if (decimalValue == null)
-      return fallbackOnError ?? _nanWord; // Handle normalization failure
+    if (decimalValue == null) return errorWord;
 
-    // Handle the specific case of zero.
+    // Handle zero.
     if (decimalValue == Decimal.zero) {
       return myOptions.currency
-          // For currency, format as "zero [main unit]"
-          ? "${_wordsUnits[0]} ${myOptions.currencyInfo.mainUnitSingular}"
-          // Otherwise, just return the word for zero ("သုည")
-          : _wordsUnits[0];
+          ? "${_wordsUnits[0]} ${myOptions.currencyInfo.mainUnitSingular}" // e.g., "သုည ကျပ်"
+          : _wordsUnits[0]; // "သုည"
     }
 
-    // Determine sign and work with the absolute value.
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-    // Delegate based on the format specified in options.
-    if (myOptions.format == Format.year) {
-      // Years are treated as integers, convert the integer part.
-      textResult = _convertInteger(absValue.truncate().toBigInt());
-    } else if (myOptions.currency) {
-      // Handle currency formatting.
+    // Dispatch based on format. Year format is not specifically handled, treated as cardinal.
+    if (myOptions.currency) {
       textResult = _handleCurrency(absValue, myOptions);
     } else {
-      // Handle standard number formatting (potentially with decimals).
       textResult = _handleStandardNumber(absValue, myOptions);
     }
 
-    // Prepend the negative prefix if the original number was negative.
-    if (isNegative) {
+    // Apply negative prefix if needed.
+    // Avoid prefixing if the result is zero (e.g., -0.001 rounding to 0).
+    if (isNegative && textResult != _wordsUnits[0]) {
       textResult = "${myOptions.negativePrefix.trim()} $textResult";
     }
+    // Handle cases like -0.1 rounding to 0 kyat - should be "သုည ကျပ်".
+    else if (isNegative && textResult == _wordsUnits[0] && myOptions.currency) {
+      return "${_wordsUnits[0]} ${myOptions.currencyInfo.mainUnitSingular}";
+    }
+
     return textResult;
   }
 
-  /// Formats the absolute [absValue] as Burmese currency.
+  /// Converts a non-negative [BigInt] integer into Burmese words.
   ///
-  /// Uses the [CurrencyInfo] provided in [options] to get unit names.
-  /// Separates the main unit value and the subunit value (assuming 2 decimal places for subunits like Pya).
-  /// Converts both parts to words using [_convertInteger] and joins them with unit names.
-  String _handleCurrency(Decimal absValue, MyOptions options) {
-    final CurrencyInfo ci = options.currencyInfo;
-    // Get the integer part for the main currency unit (e.g., Kyat).
-    final BigInt mainValue = absValue.truncate().toBigInt();
-    // Calculate the subunit value (e.g., Pya) - assumes 100 subunits per main unit.
-    final BigInt subunitValue =
-        (absValue.remainder(Decimal.one) * Decimal.fromInt(100))
-            .truncate()
-            .toBigInt();
-
-    // Convert the main value to words.
-    String mainText = _convertInteger(mainValue);
-    // Start building the result string with main value and unit.
-    String result =
-        '$mainText ${ci.mainUnitSingular}'; // e.g., "တစ်ရာ ကျပ်" (100 Kyat)
-
-    // If there's a non-zero subunit value, add it.
-    if (subunitValue > BigInt.zero) {
-      // Convert subunit value to words and add subunit name.
-      // Assumes subUnitSingular is never null if subunits exist (defined in CurrencyInfo).
-      result +=
-          ' ${_convertInteger(subunitValue)} ${ci.subUnitSingular!}'; // e.g., " ငါးဆယ် ပြား" (50 Pya)
-    }
-    return result;
-  }
-
-  /// Formats the absolute [absValue] as a standard Burmese cardinal number, including decimals if present.
+  /// Uses Burmese/international scales and connectors.
   ///
-  /// Separates the integer and fractional parts.
-  /// Converts the integer part using [_convertInteger].
-  /// Converts the fractional part digit by digit, joined by spaces, prefixed by the appropriate decimal separator word ("ဒသမ" or "ကော်မာ").
-  /// Trims trailing zeros from the fractional part for cleaner output (e.g., 1.50 -> "one point five").
-  String _handleStandardNumber(Decimal absValue, MyOptions options) {
-    // Get the integer part of the number.
-    final BigInt integerPart = absValue.truncate().toBigInt();
-    // Get the fractional part of the number.
-    final Decimal fractionalPart = absValue.remainder(Decimal.one);
-
-    // Convert the integer part to words.
-    // Handle the special case "0.xxx": if integer is 0 but there's a fractional part, output "သုည".
-    String integerWords =
-        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _wordsUnits[0] // Use "သုည" for the integer part if it's 0.xxx
-            : _convertInteger(
-                integerPart); // Otherwise, convert the integer normally.
-
-    String fractionalWords = '';
-    // Process the fractional part only if it's greater than zero.
-    if (fractionalPart > Decimal.zero) {
-      // Determine the separator word ("ဒသမ" or "ကော်မာ") based on options.
-      String separatorWord = options.decimalSeparator == DecimalSeparator.comma
-          ? _commaWord
-          : _pointWord;
-
-      // Get the fractional digits as a string (e.g., from 0.123, get "123").
-      String fractionalDigits = fractionalPart.toString().substring(2);
-
-      // Trim trailing zeros (e.g., "50" -> "5", "550" -> "55"), but keep at least one digit ("0" stays "0").
-      while (fractionalDigits.endsWith('0') && fractionalDigits.length > 1) {
-        fractionalDigits =
-            fractionalDigits.substring(0, fractionalDigits.length - 1);
-      }
-
-      // Convert each remaining digit after the separator to its word form.
-      List<String> digitWords = fractionalDigits
-          .split('')
-          .map((d) => _wordsUnits[int.parse(d)])
-          .toList();
-
-      // Combine the separator word and the spoken digits.
-      fractionalWords =
-          ' $separatorWord ${digitWords.join(' ')}'; // e.g., " ဒသမ တစ် နှစ် သုံး"
-    }
-
-    // Combine integer and fractional parts, trimming any leading/trailing whitespace.
-    return '$integerWords$fractionalWords'.trim();
-  }
-
-  /// Converts a non-negative [BigInt] [n] into its Burmese word representation.
-  ///
-  /// Handles numbers from zero up to the limits defined in [_scales].
-  /// Uses a recursive approach, breaking down the number by the defined scales
-  /// (Septillion down to Ten Thousand) and converting chunks using [_convertInteger]
-  /// for the count and [_convertUnder1000] for the final remainder.
-  /// Handles the thousands place separately to apply the correct connector word ("ထောင်" vs "ထောင့်").
-  /// Joins the resulting parts with spaces, respecting connector logic.
+  /// @param n The non-negative integer.
+  /// @return The integer as Burmese words.
   String _convertInteger(BigInt n) {
-    if (n == BigInt.zero) return _wordsUnits[0]; // Base case: zero
-    // Internal consistency check: This function should only receive non-negative numbers.
+    if (n == BigInt.zero) return _wordsUnits[0];
     if (n < BigInt.zero) {
+      // Internal safeguard; negativity is handled in `process`.
       throw ArgumentError(
           "Internal error: _convertInteger called with negative number: $n");
     }
 
-    // Handle numbers less than 1000 directly using the dedicated helper function.
+    // Handle numbers under 1000 directly.
     if (n < BigInt.from(1000)) {
       return _convertUnder1000(n.toInt());
     }
 
     List<String> parts =
-        []; // Stores word chunks for each scale (e.g., "five kute", "two thousand")
-    BigInt remaining = n; // The portion of the number still to be converted
+        []; // Stores parts like "တစ်ကုဋေ", "ငါးသန်း", "ခြောက်ရာ့သုံးဆယ်"
+    BigInt currentN = n;
+    final BigInt thousandValue = BigInt.from(1000);
+    // Scales requiring space after the count (Billion+). Others join directly.
+    final List<String> spaceAfterCountScales = [
+      _billion,
+      _trillion,
+      _quadrillion,
+      _quintillion,
+      _sextillion,
+      _septillion
+    ];
 
-    // Process large scales iteratively from largest to smallest.
-    for (var scaleInfo in _scales) {
-      final scaleValue =
-          scaleInfo.$1; // Numeric value of the scale (e.g., 10^7 for Kute)
-      if (remaining >= scaleValue) {
-        // Calculate how many times this scale unit fits into the remaining number.
-        BigInt count = remaining ~/ scaleValue;
-        // Update the remainder.
-        remaining %= scaleValue;
-        // Recursively convert the count for this scale unit into words.
-        String countText = _convertInteger(count);
-        // Get the word for this scale unit (e.g., "ကုဋေ").
-        String scaleWord = scaleInfo.$2;
+    // Process defined scales (Kute, Million, Lakh, Ten Thousand, etc.)
+    for (var (scaleValue, scaleWord) in _scales) {
+      if (currentN >= scaleValue) {
+        BigInt count = currentN ~/ scaleValue; // How many of this scale?
+        BigInt remainderAfterScale =
+            currentN % scaleValue; // Remainder for next steps.
 
-        // Construct the chunk: "count [scaleWord]".
-        // Special case: If count is 1 ("တစ်"), omit the space for natural phrasing, e.g., "တစ်ကုဋေ".
-        String chunk = (count == BigInt.one && countText == _wordsUnits[1])
-            ? '$countText$scaleWord' // "တစ်" directly joined with scale word
-            : '$countText $scaleWord'; // Count word, space, then scale word
+        String countText =
+            _convertInteger(count); // Recursively convert the count.
+        String actualScaleWord = scaleWord;
+        bool useConnector = false;
+
+        // Use connector form for Ten Thousand if there's a remainder.
+        if (scaleWord == _tenThousand && remainderAfterScale > BigInt.zero) {
+          actualScaleWord = _tenThousandConnector;
+          useConnector = true;
+        }
+
+        // Assemble the chunk for this scale.
+        String chunk;
+        if (useConnector) {
+          chunk = '$countText$actualScaleWord'; // Connectors join directly.
+        } else if (spaceAfterCountScales.contains(actualScaleWord)) {
+          chunk =
+              '$countText $actualScaleWord'; // Billion+ scales need a space.
+        } else {
+          chunk =
+              '$countText$actualScaleWord'; // Lakh, Million, Kute join directly.
+        }
         parts.add(chunk);
+
+        currentN = remainderAfterScale; // Update remaining number.
       }
     }
 
-    // Process the thousands place separately to manage the connector word correctly.
-    String?
-        thousandPart; // Stores the words for the thousands chunk if it exists.
-    if (remaining >= BigInt.from(1000)) {
-      // Calculate how many thousands fit.
-      BigInt thousandCount = remaining ~/ BigInt.from(1000);
-      // Find the remainder after removing thousands (this will be < 1000).
-      BigInt remainderAfterThousand = remaining % BigInt.from(1000);
-      // Update the main remainder for the next step.
-      remaining = remainderAfterThousand;
+    // Process Thousands separately after larger scales.
+    if (currentN >= thousandValue) {
+      BigInt thousandCount = currentN ~/ thousandValue;
+      BigInt remainderAfterThousand = currentN % thousandValue;
 
-      // Convert the count of thousands into words.
-      String countText = _convertInteger(thousandCount);
-
-      // Choose the correct thousand word: "ထောင်" (htaung) or connector "ထောင့်" (htaung).
-      // Use the connector "ထောင့်" if there's a non-zero remainder less than 1000 following it.
+      String countText =
+          _convertInteger(thousandCount); // Convert the count of thousands.
+      // Use connector form if there's a remainder under 1000.
       String thousandWord = (remainderAfterThousand > BigInt.zero)
           ? _thousandConnector
           : _thousand;
 
-      // Construct the thousands chunk, e.g., "နှစ်ထောင့်" (two thousand-and-...) or "သုံးထောင်" (three thousand).
-      thousandPart = '$countText$thousandWord';
-      parts.add(thousandPart);
+      // Thousand always joins directly to its count.
+      String chunk = '$countText$thousandWord';
+      parts.add(chunk);
+
+      currentN = remainderAfterThousand; // Update remaining number (0-999).
     }
 
-    // Process the final remaining part (which must be less than 1000).
-    String? remainderPart; // Stores the words for the < 1000 remainder.
-    if (remaining > BigInt.zero) {
-      remainderPart = _convertUnder1000(remaining.toInt());
-      parts.add(remainderPart);
+    // Process the final remainder (0-999).
+    if (currentN > BigInt.zero) {
+      parts.add(_convertUnder1000(currentN.toInt()));
     }
 
-    // If no parts were generated (shouldn't happen for n > 0), return empty string.
-    if (parts.isEmpty) return "";
+    // Join all parts with spaces.
+    String result = parts.join(' ');
 
-    // Combine the collected parts with appropriate spacing.
-    StringBuffer result = StringBuffer();
-    result.write(parts[0]); // Start with the first (largest scale) part.
+    // Final cleanup: Remove spaces potentially added *after* connectors by join(' ').
+    // Example: "တစ်ထောင့် ငါးရာ" should become "တစ်ထောင့်ငါးရာ".
+    result = result.replaceAll('$_hundredConnector ', _hundredConnector);
+    result = result.replaceAll('$_thousandConnector ', _thousandConnector);
+    result =
+        result.replaceAll('$_tenThousandConnector ', _tenThousandConnector);
+    result = result.replaceAll('$_tenConnector ', _tenConnector);
 
-    for (int i = 1; i < parts.length; i++) {
-      String previousPart = parts[i - 1];
-      String currentPart = parts[i];
-
-      // Determine if the previous part ended specifically with the thousand connector "ထောင့်".
-      // This check is crucial to avoid adding an extra space after "ထောင့်".
-      bool previousWasThousandConnector = (thousandPart !=
-              null && // Ensure thousandPart was actually processed
-          previousPart ==
-              thousandPart && // Check if the previous part *is* the thousand part
-          thousandPart.endsWith(
-              _thousandConnector)); // Check if it used the connector form
-
-      // Add a space separator unless the previous part used the thousand connector.
-      if (!previousWasThousandConnector) {
-        result.write(' ');
-      }
-
-      result.write(currentPart); // Append the current part.
-    }
-
-    return result.toString();
+    return result.trim();
   }
 
-  /// Converts an integer [n] between 0 and 999 into its Burmese word representation.
+  /// Converts an integer from 1 to 999 into Burmese words.
+  /// Handles hundreds, tens, units, and connectors.
   ///
-  /// Handles hundreds, tens, and units places, applying the correct connector words
-  /// ("ရာ့" for hundreds, "ဆယ့်" for tens) based on the context.
+  /// @param n The integer (1-999).
+  /// @return The number as Burmese words. Returns empty string if n <= 0.
   String _convertUnder1000(int n) {
-    // Input validation: Ensure n is within the expected range [0, 999].
-    if (n < 0 || n >= 1000) {
-      return (n == 0)
-          ? _wordsUnits[0]
-          : ""; // Handle 0 or return "" for out of range
-    }
+    if (n <= 0 || n >= 1000) return ""; // Handle 0 or out of range.
 
     StringBuffer buffer = StringBuffer();
-    int remainder = n; // Work with a mutable remainder.
+    int remainder = n;
 
-    // --- Handle hundreds place ---
+    // --- Hundreds ---
     if (remainder >= 100) {
-      int hundredsDigit = remainder ~/ 100; // Get the hundreds digit (1-9).
-      remainder %= 100; // Update remainder to the tens and units part (0-99).
-      buffer.write(_wordsUnits[
-          hundredsDigit]); // Write the digit word, e.g., "တစ်" (one).
-
-      // Append the hundred word ("ရာ") or connector ("ရာ့").
-      // Use the connector "ရာ့" if there are non-zero tens/units following it.
+      int hundredsDigit = remainder ~/ 100;
+      int hundredRem = remainder % 100;
+      buffer.write(_wordsUnits[hundredsDigit]); // e.g., "တစ်"
+      // Use connector if remainder exists, standalone otherwise.
       buffer.write(
-        remainder > 0 ? _hundredConnector : _hundred,
-      ); // e.g., "ရာ့" (for 1xx where xx > 0) or "ရာ" (for 100).
+          hundredRem > 0 ? _hundredConnector : _hundred); // e.g., "ရာ့" or "ရာ"
+      remainder %= 100; // Update remainder (0-99).
     }
 
-    // --- Handle tens and units place (remainder is now 0-99) ---
+    // --- Tens and Units ---
     if (remainder > 0) {
+      // Space is handled by the caller (_convertInteger) between major parts.
+
       if (remainder < 10) {
-        // Case 1: Remainder is 1-9.
-        buffer.write(_wordsUnits[
-            remainder]); // Just write the unit word, e.g., "ငါး" (five).
+        buffer.write(_wordsUnits[remainder]); // 1-9
       } else if (remainder == 10) {
-        // Case 2: Remainder is exactly 10.
-        buffer.write("${_wordsUnits[1]}$_ten"); // Write "တစ်ဆယ်" (ten).
+        // Burmese often uses "တစ်ဆယ်" for 10.
+        buffer.write("${_wordsUnits[1]}$_ten");
       } else if (remainder < 20) {
-        // Case 3: Remainder is 11-19.
-        // Write "တစ်ဆယ့်" (tit-hse) followed by the unit digit word.
+        // 11-19: Use ten connector form "တစ်ဆယ့်..."
         buffer.write(
-          "${_wordsUnits[1]}$_tenConnector${_wordsUnits[remainder % 10]}",
-        ); // e.g., "တစ်ဆယ့်သုံး" (thirteen).
+            "${_wordsUnits[1]}$_tenConnector${_wordsUnits[remainder % 10]}");
       } else {
-        // Case 4: Remainder is 20-99.
-        int tensDigit = remainder ~/ 10; // Get the tens digit (2-9).
-        int unitDigit = remainder % 10; // Get the unit digit (0-9).
-        buffer.write(_wordsUnits[
-            tensDigit]); // Write the tens digit word, e.g., "နှစ်" (two).
+        // 20-99
+        int tensDigit = remainder ~/ 10;
+        int unitDigit = remainder % 10;
+        buffer.write(_wordsUnits[tensDigit]); // e.g., "နှစ်" for 20s
 
         if (unitDigit == 0) {
-          // Subcase 4a: Unit is 0 (20, 30, ..., 90). Append "ဆယ်" (ten).
-          buffer.write(_ten); // e.g., completes to "နှစ်ဆယ်" (twenty).
+          buffer.write(_ten); // e.g., "နှစ်ဆယ်" for 20
         } else {
-          // Subcase 4b: Unit is non-zero (21-29, ..., 91-99). Append connector "ဆယ့်" and the unit word.
-          buffer.write(
-            "$_tenConnector${_wordsUnits[unitDigit]}",
-          ); // e.g., completes to "နှစ်ဆယ့်ငါး" (twenty-five).
+          // Use connector form for tens, then unit. e.g., "နှစ်ဆယ့်ခုနစ်" for 27.
+          buffer.write("$_tenConnector${_wordsUnits[unitDigit]}");
         }
       }
     }
     return buffer.toString();
+  }
+
+  /// Converts a non-negative [Decimal] to Burmese currency words.
+  ///
+  /// Uses [MyOptions.currencyInfo]. Assumes Kyat and Pya (100 pyas = 1 kyat).
+  /// Rounds to 2 decimal places.
+  ///
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options.
+  /// @return Currency value as Burmese words.
+  String _handleCurrency(Decimal absValue, MyOptions options) {
+    final CurrencyInfo ci = options.currencyInfo;
+
+    // Round to 2 decimal places for Pya.
+    final Decimal roundedValue = absValue.round(scale: 2);
+    final BigInt mainValue = roundedValue.truncate().toBigInt(); // Kyat
+    // Calculate subunit value (Pya) carefully after rounding.
+    final BigInt subunitValue =
+        (roundedValue.remainder(Decimal.one).abs() * Decimal.fromInt(100))
+            .truncate()
+            .toBigInt();
+
+    // Handle zero amount after rounding.
+    if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
+      return "${_wordsUnits[0]} ${ci.mainUnitSingular}"; // "သုည ကျပ်"
+    }
+
+    String mainPart = '';
+    String subPart = '';
+
+    // --- Main Unit (Kyat) ---
+    if (mainValue > BigInt.zero) {
+      mainPart = '${_convertInteger(mainValue)} ${ci.mainUnitSingular}';
+    }
+
+    // --- Subunit (Pya) ---
+    if (subunitValue > BigInt.zero) {
+      // Ensure subunit name exists.
+      if (ci.subUnitSingular != null && ci.subUnitSingular!.isNotEmpty) {
+        subPart = '${_convertInteger(subunitValue)} ${ci.subUnitSingular!}';
+      }
+    }
+
+    // --- Combine Parts ---
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      // Use custom separator if provided, otherwise default to a space.
+      String separator =
+          ci.separator?.isNotEmpty ?? false ? ' ${ci.separator!} ' : ' ';
+      return '$mainPart$separator$subPart';
+    } else if (mainPart.isNotEmpty) {
+      return mainPart; // Only Kyat.
+    } else {
+      // Only Pya (handles cases like 0.50 Kyat).
+      return subPart;
+    }
+  }
+
+  /// Converts a non-negative standard [Decimal] number to Burmese words.
+  ///
+  /// Handles integer and fractional parts. Fractional part read digit by digit.
+  ///
+  /// @param absValue Absolute decimal value.
+  /// @param options Used for `decimalSeparator`.
+  /// @return Number as Burmese words.
+  String _handleStandardNumber(Decimal absValue, MyOptions options) {
+    final BigInt integerPart = absValue.truncate().toBigInt();
+    final Decimal fractionalPart = absValue.remainder(Decimal.one).abs();
+
+    // Convert integer part. Use "သုည" if integer is 0 but fraction exists (e.g., 0.5).
+    String integerWords =
+        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
+            ? _wordsUnits[0]
+            : _convertInteger(integerPart);
+
+    String fractionalWords = '';
+    // Process fractional part if it exists.
+    if (fractionalPart > Decimal.zero) {
+      String separatorWord =
+          (options.decimalSeparator == DecimalSeparator.comma)
+              ? _commaWord
+              : _pointWord; // Default to "ဒသမ".
+
+      // Get fractional digits string representation.
+      // toString() is usually sufficient. Using toStringAsFixed might add too many zeros.
+      String fractionalDigits = absValue.toString().split('.').last;
+
+      // Remove trailing zeros as they are typically not spoken.
+      while (fractionalDigits.endsWith('0') && fractionalDigits.length > 1) {
+        fractionalDigits =
+            fractionalDigits.substring(0, fractionalDigits.length - 1);
+      }
+
+      // Convert remaining digits individually.
+      if (fractionalDigits.isNotEmpty) {
+        List<String> digitWords = fractionalDigits.split('').map((d) {
+          return _wordsUnits[int.parse(d)];
+        }).toList();
+        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+      }
+    }
+
+    return '$integerWords$fractionalWords'.trim();
   }
 }

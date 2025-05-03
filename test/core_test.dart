@@ -28,9 +28,9 @@ void main() {
           equals('Negative Infinity'));
 
       final converter2 = Num2Text();
-      expect(converter2.convert('abc'), equals('Not a Number'));
-      expect(converter2.convert(true), equals('Not a Number'));
-      expect(converter2.convert(object), equals('Not a Number'));
+      expect(converter2.convert('abc'), equals('Not A Number'));
+      expect(converter2.convert(true), equals('Not A Number'));
+      expect(converter2.convert(object), equals('Not A Number'));
       expect(converter.convert(double.infinity), equals('Infinity'));
       expect(converter.convert(double.negativeInfinity),
           equals('Negative Infinity'));

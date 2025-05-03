@@ -3,13 +3,6 @@ import 'base_options.dart';
 
 /// Options specific to the Afrikaans (`Lang.AF`) language version.
 class AfOptions extends BaseOptions {
-  /// Determines if 'en' (and) is used to connect hundreds with tens/units.
-  ///
-  /// Example:
-  /// - `true`: "een honderd **en** een" (one hundred and one) - Default
-  /// - `false`: "een honderd een" (less common)
-  final bool includeAnd;
-
   /// Determines if the "n.C." (na Christus - AD/CE) suffix is added for positive years
   /// when using [Format.year]. BC years ("v.C.") are typically handled internally.
   /// Defaults to `false`.
@@ -25,7 +18,6 @@ class AfOptions extends BaseOptions {
 
   /// Creates Afrikaans-specific options.
   const AfOptions({
-    this.includeAnd = true,
     this.includeAD = false,
     this.negativePrefix = "minus",
     this.currencyInfo = CurrencyInfo.zar,

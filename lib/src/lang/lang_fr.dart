@@ -3,562 +3,350 @@ import 'package:decimal/decimal.dart';
 import '../concurencies/concurencies_info.dart';
 import '../num2text_base.dart';
 import '../options/base_options.dart';
-import '../options/fr_options.dart'; // Options specific to French formatting.
+import '../options/fr_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_fr}
-/// The French language (`Lang.FR`) implementation for converting numbers to words.
+/// Converts numbers to French words (`Lang.FR`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their French word representation following standard French grammar and vocabulary,
-/// including rules for hyphens, "et un", and number agreement (e.g., plurals for "vingt", "cent").
-///
-/// Capabilities include handling cardinal numbers, currency (using [FrOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers using the
-/// short scale system (but including "milliard").
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [FrOptions].
+/// Implements [Num2TextBase] for French, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, years, and large numbers (short scale + milliard).
+/// Handles French specifics: hyphens, "et un", plural 's' on "cent"/"vingt".
+/// Customizable via [FrOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextFR implements Num2TextBase {
   // --- Constants ---
-
-  /// The word for zero ("zéro").
   static const String _zero = "zéro";
-
-  /// The word for the decimal separator when using a period (`.`).
-  static const String _point = "point";
-
-  /// The word for the decimal separator when using a comma (`,`) (standard in French).
-  static const String _comma = "virgule";
-
-  /// The conjunction "et" (and), specifically used for "vingt-et-un", "trente-et-un", etc., up to "soixante-et-onze".
-  static const String _and = "et";
-
-  /// The hyphen "-", used to connect parts of compound numbers (e.g., "vingt-trois", "quatre-vingt-dix").
+  static const String _point = "point"; // Decimal separator '.'
+  static const String _comma = "virgule"; // Decimal separator ',' (standard)
+  static const String _and = "et"; // Used for *et-un
   static const String _hyphen = "-";
+  static const String _hundred = "cent"; // Takes 's' sometimes
+  static const String _thousand = "mille"; // Invariable
+  static const String _yearSuffixBC = "av. J.-C."; // Before Christ
+  static const String _yearSuffixAD = "ap. J.-C."; // After Christ
 
-  /// The word for hundred ("cent"). It takes an 's' in the plural when terminal and preceded by a multiplier > 1 (e.g., "deux cents").
-  static const String _hundred = "cent";
-
-  /// The word for thousand ("mille"). It is invariable (never takes an 's').
-  static const String _thousand = "mille";
-
-  /// The suffix for negative years, "avant Jésus-Christ" (Before Jesus Christ).
-  static const String _yearSuffixBC = "av. J.-C.";
-
-  /// The suffix for positive years, "après Jésus-Christ" (After Jesus Christ). Added only if [FrOptions.includeAD] is true.
-  static const String _yearSuffixAD = "ap. J.-C.";
-
-  /// Word forms for numbers 0 through 16. French handles 17-19 compositionally ("dix-sept", etc.).
+  // 0-16
   static const List<String> _wordsUnder20 = [
-    "zéro", // 0
-    "un", // 1
-    "deux", // 2
-    "trois", // 3
-    "quatre", // 4
-    "cinq", // 5
-    "six", // 6
-    "sept", // 7
-    "huit", // 8
-    "neuf", // 9
-    "dix", // 10
-    "onze", // 11
-    "douze", // 12
-    "treize", // 13
-    "quatorze", // 14
-    "quinze", // 15
-    "seize", // 16
+    "zéro",
+    "un",
+    "deux",
+    "trois",
+    "quatre",
+    "cinq",
+    "six",
+    "sept",
+    "huit",
+    "neuf",
+    "dix",
+    "onze",
+    "douze",
+    "treize",
+    "quatorze",
+    "quinze",
+    "seize",
   ];
-
-  /// Word forms for tens: 10, 20, 30, 40, 50, 60.
-  /// French handles 70, 80, 90 compositionally ("soixante-dix", "quatre-vingt", "quatre-vingt-dix").
-  /// Index corresponds to the tens digit (index 1 = 10, index 6 = 60).
+  // 10, 20, ..., 60
   static const List<String> _wordsTens = [
-    "", // 0 - Not used directly
-    "dix", // 10
-    "vingt", // 20 (takes 's' in "quatre-vingts" when terminal)
-    "trente", // 30
-    "quarante", // 40
-    "cinquante", // 50
-    "soixante", // 60
+    "",
+    "dix",
+    "vingt",
+    "trente",
+    "quarante",
+    "cinquante",
+    "soixante",
   ];
-
-  /// Defines scale words (million, milliard, billion, etc.) by their exponent (10^exponent).
-  /// This map uses the short scale system extended with "milliard".
-  /// Key: Exponent (e.g., 6 for 10^6).
-  /// Value: List containing `[singular form, plural form]`.
+  // Scale words [singular, plural] by exponent (10^exponent)
   static const Map<int, List<String>> _scaleWordsByExponent = {
     6: ["million", "millions"], // 10^6
-    9: ["milliard", "milliards"], // 10^9 (common in French/European usage)
-    12: ["billion", "billions"], // 10^12 (short scale)
-    15: [
-      "billiard",
-      "billiards"
-    ], // 10^15 (intermediate term, less common in pure short scale)
-    18: ["trillion", "trillions"], // 10^18 (short scale)
-    21: ["trilliard", "trilliards"], // 10^21 (intermediate term)
-    24: ["quadrillion", "quadrillions"], // 10^24 (short scale)
-    // Can be extended further (quadrilliard, quintillion, etc.)
+    9: ["milliard", "milliards"], // 10^9
+    12: ["billion", "billions"], // 10^12
+    15: ["billiard", "billiards"], // 10^15
+    18: ["trillion", "trillions"], // 10^18
+    21: ["trilliard", "trilliards"], // 10^21
+    24: ["quadrillion", "quadrillions"], // 10^24
   };
-
-  /// Pre-computed map of scale words indexed by their group position (0=units, 1=thousands, 2=millions, 3=milliards...).
-  /// This is derived from `_scaleWordsByExponent` for easier lookup during conversion.
+  // Scale words [singular, plural] by group index (0=units, 1=thousands, 2=millions...)
   static final Map<int, List<String>> _scaleWordsByIndex = {
-    1: [_thousand, _thousand], // Thousands (group 1) - invariable "mille"
-    // Dynamically populate from the exponent map: index = exponent / 3
+    1: [_thousand, _thousand], // Group 1: mille (invariable)
     for (var entry in _scaleWordsByExponent.entries)
       (entry.key ~/ 3): entry.value,
   };
 
   /// {@macro num2text_base_process}
-  /// Converts the given [number] into its French word representation.
-  ///
-  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String` inputs.
-  /// Uses [FrOptions] to customize behavior like currency formatting ([FrOptions.currency], [FrOptions.currencyInfo]),
-  /// year formatting ([Format.year]), decimal separator ([FrOptions.decimalSeparator]),
-  /// and negative prefix ([FrOptions.negativePrefix]).
-  /// If `options` is not an instance of [FrOptions], default settings are used.
-  ///
-  /// Returns the word representation (e.g., "cent vingt-trois", "moins dix virgule cinq", "un million").
-  /// If the input is invalid (`null`, `NaN`, `Infinity`, non-numeric string), it returns
-  /// [fallbackOnError] if provided, otherwise a default error message like "N'est pas un nombre".
+  /// Converts the given [number] into French words.
+  /// Uses [FrOptions] for customization (currency, year, decimals, AD/BC).
+  /// Returns fallback string on error (e.g., "N'est Pas Un Nombre").
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have French-specific options, using defaults if none are provided.
     final FrOptions frOptions =
         options is FrOptions ? options : const FrOptions();
 
-    // Handle special non-finite double values early.
     if (number is double) {
-      if (number.isInfinite) {
-        return number.isNegative
-            ? "Moins l'infini"
-            : "Infini"; // Localized infinity
-      }
-      if (number.isNaN)
-        return fallbackOnError ?? "N'est pas un nombre"; // Not a Number
+      if (number.isInfinite)
+        return number.isNegative ? "Moins L'infini" : "Infini";
+      if (number.isNaN) return fallbackOnError ?? "N'est Pas Un Nombre";
     }
 
-    // Normalize the input to a Decimal for precise calculations.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return fallbackOnError ?? "N'est Pas Un Nombre";
 
-    // Return error if normalization failed (invalid input type or format).
-    if (decimalValue == null) return fallbackOnError ?? "N'est pas un nombre";
-
-    // Handle the specific case of zero.
-    if (decimalValue == Decimal.zero) {
-      if (frOptions.currency) {
-        // Currency format for zero (e.g., "zéro euro"). Assumes singular currency unit for zero.
-        return "$_zero ${frOptions.currencyInfo.mainUnitSingular}";
-      }
-      // Standard "zéro". Also covers year 0.
+    // Handle zero separately unless handled by currency/year formatters
+    if (decimalValue == Decimal.zero &&
+        frOptions.format != Format.year &&
+        !frOptions.currency) {
       return _zero;
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic.
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-    // --- Dispatch based on format options ---
     if (frOptions.format == Format.year) {
-      // Year format needs the original integer value (positive or negative).
+      // Year formatting handles its own sign (BC/AD)
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), frOptions);
-      // Note: Negative sign is handled by appending BC/AD, not the standard negative prefix.
     } else {
-      // Handle currency or standard number format for the absolute value.
-      if (frOptions.currency) {
-        textResult = _handleCurrency(absValue, frOptions);
-      } else {
-        textResult = _handleStandardNumber(absValue, frOptions);
-      }
-      // Prepend the negative prefix *only* if it's a standard number or currency, not a year.
-      if (isNegative) {
+      textResult = frOptions.currency
+          ? _handleCurrency(absValue, frOptions)
+          : _handleStandardNumber(absValue, frOptions);
+      // Add negative prefix if applicable (not for years)
+      if (isNegative && absValue != Decimal.zero) {
         textResult = "${frOptions.negativePrefix} $textResult";
       }
     }
-
-    // Clean up potential extra spaces before returning.
     return textResult.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Formats an integer as a calendar year, optionally adding BC/AD suffixes.
-  /// Years are converted as cardinal numbers.
-  ///
-  /// [year]: The integer year value (can be negative for BC).
-  /// [options]: French options, specifically checks `includeAD`.
-  /// Returns the year in words, e.g., "mille neuf cent quatre-vingt-dix-neuf", "cinq cents av. J.-C.".
+  /// Formats an integer year as French words, optionally adding BC/AD.
+  /// Years are converted as standard cardinal numbers.
   String _handleYearFormat(int year, FrOptions options) {
     final bool isNegative = year < 0;
     final int absYear = isNegative ? -year : year;
+    if (absYear == 0) return _zero; // Handle year 0 if passed
 
-    // Handle year 0.
-    if (absYear == 0) return _zero;
-
-    // Convert the absolute year value as a standard integer.
     String yearText = _convertInteger(BigInt.from(absYear));
 
-    // Append era suffixes based on the year's sign and options.
-    if (isNegative) {
-      yearText +=
-          " $_yearSuffixBC"; // Always add "av. J.-C." for negative years.
-    } else if (options.includeAD) {
-      // Add "ap. J.-C." for positive years *only if* requested via options.
-      // Note: absYear > 0 check is implicit as year 0 is handled above.
-      yearText += " $_yearSuffixAD";
-    }
+    if (isNegative)
+      yearText += " $_yearSuffixBC";
+    else if (options.includeAD) yearText += " $_yearSuffixAD";
+
     return yearText;
   }
 
-  /// Formats a [Decimal] value as a currency amount in words.
-  /// Handles main units and subunits based on [FrOptions.currencyInfo].
-  /// Applies rounding if [FrOptions.round] is true.
-  /// Handles pluralization of currency units.
-  ///
-  /// [absValue]: The non-negative currency amount.
-  /// [options]: French options containing currency details and rounding preference.
-  /// Returns the currency amount in words, e.g., "un euro et cinquante centimes", "deux euros".
+  /// Formats a non-negative [Decimal] as French currency words.
+  /// Handles main/sub units, rounding, plurals, and elision ("millions d'euros").
   String _handleCurrency(Decimal absValue, FrOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    // Assume 2 decimal places for subunits (e.g., cents), common for most currencies.
-    final int decimalPlaces = 2;
-    final Decimal subunitMultiplier =
-        Decimal.ten.pow(decimalPlaces).toDecimal(); // 100
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal = ((val - val.truncate()).abs() * Decimal.parse("100"))
+        .truncate()
+        .toBigInt();
 
-    // Apply rounding to the specified decimal places if requested.
-    Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate the integer (main unit) and fractional (subunit) parts.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Calculate the subunit value as an integer (e.g., 0.50 becomes 50).
-    // Use abs() on fractional part in case of rounding artifacts near zero.
-    final BigInt subunitValue =
-        (fractionalPart.abs() * subunitMultiplier).truncate().toBigInt();
-
-    // Convert the main unit integer part to words.
-    String mainText = _convertInteger(mainValue);
-
-    // Determine the correct main unit name (singular or plural).
-    // Use absolute value for comparison as mainValue could be negative if original input was.
-    String mainUnitName = (mainValue.abs() == BigInt.one)
-        ? currencyInfo.mainUnitSingular
-        // Use null-aware operator and fallback, though CurrencyInfo expects non-null plurals usually.
-        : (currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular);
-
-    // Start building the result string with the main unit part.
-    String result = '$mainText $mainUnitName';
-
-    // Add the subunit part if it exists (value > 0) and subunit names are defined.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      // Convert the subunit integer part to words.
-      String subunitText = _convertInteger(subunitValue);
-      // Determine the correct subunit name (singular or plural).
-      String subUnitName = (subunitValue.abs() == BigInt.one)
-          ? currencyInfo.subUnitSingular!
-          : (currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular!);
-
-      // Get the separator word (e.g., "et") from currency info or use the default.
-      String separator =
-          currencyInfo.separator ?? _and; // Default to "et" if not provided.
-      // Ensure separator has spaces around it.
-      if (!separator.startsWith(' ')) separator = ' $separator';
-      if (!separator.endsWith(' ')) separator = '$separator ';
-
-      // Append the separator and the subunit part.
-      result += '$separator$subunitText $subUnitName';
+    String mainPart = "";
+    if (mainVal > BigInt.zero) {
+      String mainText = _convertInteger(mainVal);
+      String mainName = (mainVal == BigInt.one)
+          ? info.mainUnitSingular
+          : (info.mainUnitPlural ?? info.mainUnitSingular);
+      String joiner = " ";
+      // Elision check (e.g., "millions d'euros")
+      final bool endsPlural =
+          _scaleWordsByExponent.values.any((p) => mainText.endsWith(p[1]));
+      final bool startsVowel = mainName.isNotEmpty &&
+          ['a', 'e', 'i', 'o', 'u', 'y', 'h', 'A', 'E', 'I', 'O', 'U', 'Y', 'H']
+              .contains(mainName[0]);
+      if (endsPlural && startsVowel) joiner = " d'";
+      mainPart = '$mainText$joiner$mainName';
     }
-    return result;
+
+    String subPart = "";
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      String subText = _convertInteger(subVal);
+      String subName = (subVal == BigInt.one)
+          ? info.subUnitSingular!
+          : (info.subUnitPlural ?? info.subUnitSingular!);
+      subPart = '$subText $subName';
+    }
+
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      String sep = info.separator ?? _and;
+      sep = ' ${sep.trim()} '; // Ensure spaces around separator
+      return '$mainPart$sep$subPart';
+    } else if (mainPart.isNotEmpty)
+      return mainPart;
+    else if (subPart.isNotEmpty)
+      return subPart; // e.g., "un centime"
+    else
+      return "$_zero ${info.mainUnitSingular}"; // Zero case
   }
 
-  /// Formats a standard [Decimal] number (non-currency, non-year) into words.
-  /// Handles both the integer and fractional parts.
-  /// The fractional part is read digit by digit after the separator word ("virgule" or "point").
-  ///
-  /// [absValue]: The non-negative number.
-  /// [options]: French options, used for `decimalSeparator`.
-  /// Returns the number in words, e.g., "cent vingt-trois virgule quatre cinq six".
+  /// Formats a non-negative standard [Decimal] number into French words.
+  /// Fractional part read digit-by-digit after "virgule" or "point".
   String _handleStandardNumber(Decimal absValue, FrOptions options) {
+    if (absValue == Decimal.zero) return _zero; // Handle exact zero input
+
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
+    String integerWords = _convertInteger(integerPart);
 
-    // Convert the integer part. Use "zéro" if integer is zero but there's a fractional part.
-    String integerWords =
-        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _zero // Handle cases like 0.5 -> "zéro virgule cinq"
-            : _convertInteger(integerPart);
+    // Handle integer 0 when fraction exists (e.g., 0.5 -> "zéro virgule...")
+    if (integerPart == BigInt.zero && fractionalPart > Decimal.zero) {
+      integerWords = _zero;
+    }
 
     String fractionalWords = '';
-    // Process fractional part only if it's greater than zero.
     if (fractionalPart > Decimal.zero) {
-      // Determine the decimal separator word based on options.
-      String separatorWord;
+      String sepWord;
       switch (options.decimalSeparator) {
         case DecimalSeparator.period:
         case DecimalSeparator.point:
-          separatorWord = _point;
+          sepWord = _point;
           break;
-        case DecimalSeparator.comma:
-        default: // Default to "virgule" for French.
-          separatorWord = _comma;
-          break;
+        default:
+          sepWord = _comma;
+          break; // Default to "virgule"
       }
 
-      // Get the fractional part as a string.
-      String fractionalString = fractionalPart.toString(); // e.g., "0.123"
-      // Extract digits after the "0.".
-      String digits = fractionalString.substring(2);
-
-      // Remove trailing zeros unless it's just "0". This prevents "un virgule cinq zéro".
+      String digits = fractionalPart.toString().split('.').last;
       while (digits.endsWith('0') && digits.length > 1) {
+        // Trim trailing zeros
         digits = digits.substring(0, digits.length - 1);
       }
-      // Ensure we have at least one digit if fractionalPart was > 0.
-      if (digits.isEmpty) digits = "0";
+      if (digits.isEmpty) digits = "0"; // Safety
 
-      // Convert each digit character to its word form.
-      List<String> digitWords = digits.split('').map((digitChar) {
-        final int? digitInt = int.tryParse(digitChar);
-        // Map the digit to its word using _wordsUnder20.
-        return (digitInt != null && digitInt >= 0 && digitInt <= 9)
-            ? _wordsUnder20[digitInt]
-            : '?'; // Placeholder for unexpected non-digit characters
+      List<String> digitWords = digits.split('').map((d) {
+        final int? i = int.tryParse(d);
+        return (i != null && i >= 0 && i <= 9) ? _wordsUnder20[i] : '?';
       }).toList();
 
-      // Add space before separator unless the integer part was zero.
       String prefixSpace =
-          (integerPart == BigInt.zero && integerWords == _zero) ? "" : " ";
-      // Combine the separator word and the individual digit words.
-      fractionalWords = '$prefixSpace$separatorWord ${digitWords.join(' ')}';
+          integerWords == _zero ? "" : " "; // Avoid space after "zéro"
+      fractionalWords = '$prefixSpace$sepWord ${digitWords.join(' ')}';
     }
-    // This else-if block seems intended to handle cases like Decimal('1.0') but might be redundant or incorrect.
-    // Standard handling above should cover .0 cases if fractionalPart > Decimal.zero is false.
-    // else if (integerPart > BigInt.zero && absValue.scale > 0 && absValue.isInteger) {
-    // Handle cases like 1.0 -> "un virgule zéro"? Usually not desired.
-    // }
-
-    // Combine integer and fractional parts. Use trim to avoid leading/trailing spaces.
     return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a non-negative [BigInt] integer into its French word representation.
-  /// This is the main recursive function, breaking the number into 3-digit chunks
-  /// and applying scale words (mille, million, milliard, etc.).
-  ///
-  /// [n]: The non-negative integer to convert. Must not be negative.
-  /// Returns the integer in words, e.g., "un million deux cent mille trois cent quarante-cinq".
+  /// Converts a non-negative [BigInt] into French words (recursive core).
+  /// Breaks into 3-digit chunks, applies scale words ("mille", "million", etc.).
   String _convertInteger(BigInt n) {
-    if (n == BigInt.zero) return _zero; // Base case: zero.
-    // Ensure input is non-negative as negative sign is handled elsewhere.
-    if (n < BigInt.zero) {
-      throw ArgumentError("Input must be non-negative for _convertInteger: $n");
-    }
-
-    // Handle numbers less than 1000 directly using the chunk converter.
-    if (n < BigInt.from(1000)) {
-      // The lowest chunk is considered terminal for pluralization rules ('s' on cent/vingt).
+    if (n == BigInt.zero) return ""; // Zero is handled by callers in context
+    if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
+    if (n < BigInt.from(1000))
       return _convertChunk(n.toInt(), isTerminalChunk: true);
-    }
 
-    List<String> parts =
-        []; // Stores word parts for each scale level (thousands, millions...).
+    List<String> parts = [];
     BigInt remaining = n;
     final BigInt thousand = BigInt.from(1000);
-    int groupIndex = 0; // 0=units chunk, 1=thousands chunk, 2=millions chunk...
-    bool isLowestGroup =
-        true; // Flag to track if we are processing the lowest (0-999) group.
+    int groupIndex = 0;
+    bool isLowestNonZeroGroup = true; // Track rightmost non-zero chunk
 
-    // Process the number in chunks of 1000 from right to left.
     while (remaining > BigInt.zero) {
-      // Get the current 3-digit chunk (0-999).
       int chunkValue = (remaining % thousand).toInt();
-      remaining ~/= thousand; // Move to the next higher chunk.
+      remaining ~/= thousand;
 
-      // Only process non-zero chunks.
       if (chunkValue > 0) {
-        // Determine if this chunk is the terminal one (the rightmost non-zero chunk).
-        // This affects pluralization of "cent" and "vingt".
-        bool isTerminal = isLowestGroup;
-        // Convert the 3-digit chunk to words.
+        bool isTerminalChunkForChunk = isLowestNonZeroGroup;
         String chunkText =
-            _convertChunk(chunkValue, isTerminalChunk: isTerminal);
-
-        // Determine the scale word (mille, million, etc.) for this group index.
+            _convertChunk(chunkValue, isTerminalChunk: isTerminalChunkForChunk);
         String? scaleWord;
+
         if (groupIndex > 0) {
-          // Skip scale word for the base units group (index 0).
+          // Scale words apply from thousands onwards
           if (_scaleWordsByIndex.containsKey(groupIndex)) {
             final scaleNames = _scaleWordsByIndex[groupIndex]!;
-            // Use plural scale word (millions, milliards) if chunk > 1, except for invariable "mille".
             bool usePluralScale =
-                chunkValue > 1 && groupIndex != 1; // groupIndex 1 is "mille"
+                chunkValue > 1 && groupIndex != 1; // group 1 = "mille"
             scaleWord = usePluralScale ? scaleNames[1] : scaleNames[0];
 
-            // Special cases for '1' before scale words:
-            if (groupIndex == 1 && chunkValue == 1) {
-              // "mille" (not "un mille"). The chunk text "un" is omitted.
-              chunkText = "";
-            } else if (chunkValue == 1 && groupIndex > 1) {
-              // "un million", "un milliard". Keep "un" as the chunk text.
-              chunkText = "un";
-            }
-          } else {
-            // Safety warning for extremely large numbers beyond defined scales.
-            return "Scale index $groupIndex not defined for number $n";
-          }
+            // Special cases for '1' before scale words
+            if (groupIndex == 1 && chunkValue == 1)
+              chunkText = ""; // "mille", not "un mille"
+            else if (chunkValue == 1 && groupIndex > 1)
+              chunkText = "un"; // "un million"
+          } else
+            scaleWord = "[Scale?]";
         }
 
-        // Combine the chunk text and its scale word.
         String currentPart = chunkText;
         if (scaleWord != null && scaleWord.isNotEmpty) {
-          // Add a space if needed (e.g., between "deux" and "millions").
           currentPart += (chunkText.isNotEmpty ? " " : "") + scaleWord;
         }
-        parts.add(
-            currentPart.trim()); // Add the complete part for this scale level.
-        isLowestGroup =
-            false; // Once a non-zero chunk is processed, subsequent ones are not the lowest.
+        parts.insert(0, currentPart.trim());
+        isLowestNonZeroGroup = false; // Next non-zero chunk is not terminal
       }
-      // If the lowest group (0-999) was zero, but higher groups exist (e.g., for 1000, 2000000),
-      // we still need to move to the next group index. This was handled implicitly before,
-      // but adding a check for clarity or edge cases might be useful.
-      // else if (groupIndex == 0 && parts.isEmpty && n >= thousand) {
-      // Case like 1000: chunkValue is 0, remaining becomes 1. Need to process groupIndex 1.
-      // The logic works correctly as is because the loop continues based on 'remaining'.
-      // }
       groupIndex++;
     }
-    // Join the parts in reverse order (highest scale first) with spaces.
-    return parts.reversed.join(' ').trim();
+    return parts.join(' ').trim();
   }
 
-  /// Converts a number between 0 and 999 into its French word representation.
-  /// Handles French complexities like 70-79, 90-99, hyphens, "et un", and plural 's' on "cent" and "vingt".
-  ///
-  /// [n]: The number to convert (must be 0 <= n < 1000).
+  /// Converts a number 0-999 into French words.
+  /// Handles 70-79, 90-99, hyphens, "et un", plural 's' on "cent"/"vingt".
   /// [isTerminalChunk]: True if this is the rightmost non-zero chunk of the entire number.
-  /// This determines if "cent" or "vingt" should take a plural 's'.
-  /// Returns the chunk in words, e.g., "cent", "vingt-et-un", "soixante-douze", "quatre-vingts".
   String _convertChunk(int n, {required bool isTerminalChunk}) {
-    if (n == 0) return ""; // Empty string for zero in this context.
-    if (n < 0 || n >= 1000) {
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
-    }
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
-    List<String> words = []; // Stores word parts for this chunk.
-    int remainder = n;
+    List<String> words = [];
+    int rem = n;
 
-    // --- Process Hundreds ---
-    int hundredsDigit = remainder ~/ 100;
-    if (hundredsDigit > 0) {
-      // Determine if "cent" needs a plural 's'.
-      // Condition: multiplier > 1 AND it's the end of the number (remainder is 0) AND it's the terminal chunk.
-      bool centNeedsS =
-          hundredsDigit > 1 && (remainder % 100 == 0) && isTerminalChunk;
-      String centWord =
-          _hundred + (centNeedsS ? "s" : ""); // Add 's' if needed.
-
-      if (hundredsDigit == 1) {
-        // "cent" (never "un cent").
+    // Hundreds
+    int hundreds = rem ~/ 100;
+    if (hundreds > 0) {
+      bool centNeedsS = hundreds > 1 && (rem % 100 == 0) && isTerminalChunk;
+      String centWord = _hundred + (centNeedsS ? "s" : "");
+      if (hundreds == 1)
         words.add(_hundred);
+      else
+        words.add(
+            "${_convertChunk(hundreds, isTerminalChunk: false)} $centWord"); // Multiplier never terminal here
+      rem %= 100;
+    }
+
+    // Tens and Units (0-99)
+    if (rem > 0) {
+      if (words.isNotEmpty) words.add(" "); // Space after hundreds part
+
+      if (rem < 17)
+        words.add(_wordsUnder20[rem]);
+      else if (rem < 20)
+        words
+            .add("${_wordsTens[1]}$_hyphen${_wordsUnder20[rem % 10]}"); // 17-19
+      else if (rem < 70) {
+        // 20-69
+        int tens = rem ~/ 10, unit = rem % 10;
+        words.add(_wordsTens[tens]);
+        if (unit > 0) {
+          if (unit == 1)
+            words.add(" $_and ${_wordsUnder20[unit]}"); // et-un
+          else
+            words.add("$_hyphen${_wordsUnder20[unit]}");
+        }
+      } else if (rem < 80) {
+        // 70-79
+        int unitPart = rem - 60; // 10-19
+        words.add(_wordsTens[6]); // soixante
+        if (unitPart == 11)
+          words.add(" $_and ${_wordsUnder20[11]}"); // et-onze
+        else
+          words.add(
+              "$_hyphen${_convertChunk(unitPart, isTerminalChunk: false)}"); // Recursive for 10, 12-19
       } else {
-        // "deux cents", "trois cent", etc.
-        // Convert the multiplier (2-9). It's not terminal itself.
-        words.add(_convertChunk(hundredsDigit, isTerminalChunk: false));
-        words.add(" "); // Space before "cent(s)".
-        words.add(centWord);
-      }
-      remainder %= 100; // Keep track of the remaining tens and units.
-    }
-
-    // --- Process Tens and Units (0-99) ---
-    if (remainder > 0) {
-      // Add a space if there was a hundreds part.
-      if (words.isNotEmpty) words.add(" ");
-
-      // Handle numbers 0-16 directly.
-      if (remainder < 17) {
-        words.add(_wordsUnder20[remainder]);
-      }
-      // Handle 17-19: dix-sept, dix-huit, dix-neuf.
-      else if (remainder < 20) {
-        words.add(_wordsTens[1]); // "dix"
-        words.add(_hyphen);
-        words.add(_wordsUnder20[remainder % 10]); // Add 7, 8, or 9 part.
-      }
-      // Handle 20-69.
-      else if (remainder < 70) {
-        int tensDigit = remainder ~/ 10;
-        int unitDigit = remainder % 10;
-        words.add(_wordsTens[tensDigit]); // Add "vingt", "trente", etc.
-        if (unitDigit > 0) {
-          // Handle "et un" (e.g., "vingt-et-un").
-          if (unitDigit == 1) {
-            words.add(" $_and "); // Add " et ".
-            words.add(_wordsUnder20[unitDigit]); // Add "un".
-          } else {
-            // Add hyphen and the unit (e.g., "vingt-deux").
-            words.add(_hyphen);
-            words.add(_wordsUnder20[unitDigit]);
-          }
-        }
-        // Plural 's' for vingt? No, only in "quatre-vingts".
-      }
-      // Handle 70-79 (soixante-dix...).
-      else if (remainder < 80) {
-        int unitPart = remainder - 60; // The part added to sixty (10-19).
-        words.add(_wordsTens[6]); // Add "soixante".
-        // Handle "soixante-et-onze" (71).
-        if (unitPart == 11) {
-          words.add(" $_and "); // Add " et ".
-          words.add(_wordsUnder20[11]); // Add "onze".
-        } else {
-          // Add hyphen and the 10-19 part (e.g., "soixante-douze").
-          words.add(_hyphen);
-          if (unitPart < 17) {
-            // 10, 12-16
-            words.add(_wordsUnder20[unitPart]);
-          } else {
-            // 17-19: decompose further into "dix-sept", etc.
-            words.add(_wordsTens[1]); // "dix"
-            words.add(_hyphen);
-            words.add(_wordsUnder20[unitPart % 10]); // Add 7, 8, or 9 part.
-          }
-        }
-      }
-      // Handle 80-99 (quatre-vingt...).
-      else {
-        // remainder >= 80
-        // Base "quatre-vingt".
-        String baseQuatreVingt =
-            "quatre$_hyphen${_wordsTens[2]}"; // "quatre-vingt"
-
-        // Handle exactly 80.
-        if (remainder == 80) {
-          // Determine if "vingt" needs a plural 's'.
-          // Condition: It's exactly 80 AND it's the terminal chunk.
+        // 80-99
+        String base = "quatre$_hyphen${_wordsTens[2]}"; // quatre-vingt
+        if (rem == 80) {
           bool quatreVingtNeedsS = isTerminalChunk;
-          words.add(baseQuatreVingt +
-              (quatreVingtNeedsS ? "s" : "")); // Add 's' if needed.
+          words.add(base + (quatreVingtNeedsS ? "s" : "")); // quatre-vingts
         } else {
-          // Handle 81-99. Add "quatre-vingt" (without 's').
-          words.add(baseQuatreVingt);
-          words.add(_hyphen);
-          int unitPart = remainder - 80; // The part added to eighty (1-19).
-          // Convert the 1-19 part recursively (it's < 1000).
-          // Pass false for isTerminalChunk as this part isn't terminal itself.
-          words.add(_convertChunk(unitPart, isTerminalChunk: false));
-          // Note: The recursive call handles 91 ("quatre-vingt-onze") correctly.
+          // 81-99
+          int unitPart = rem - 80; // 1-19
+          words.add(
+              "$base$_hyphen${_convertChunk(unitPart, isTerminalChunk: false)}"); // Recursive for 1-19
         }
       }
     }
-    // Combine the collected word parts for the chunk.
     return words.join();
   }
 }

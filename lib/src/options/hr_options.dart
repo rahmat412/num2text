@@ -22,7 +22,7 @@ class HrOptions extends BaseOptions {
     this.negativePrefix = "minus",
     this.currencyInfo = CurrencyInfo.eurHr,
     super.currency = false,
-    super.format, // Inherited: special format context (e.g., Format.year)
+    super.format,
     super.decimalSeparator =
         DecimalSeparator.comma, // Default word: "zarez" or "cijelih"
     super.round =

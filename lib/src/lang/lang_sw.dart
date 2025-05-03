@@ -7,529 +7,359 @@ import '../options/sw_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_sw}
-/// The Swahili language (Lang.SW) implementation for converting numbers to words.
+/// Converts numbers to Swahili words (`Lang.SW`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Swahili word representation following standard Swahili grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [SwOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers.
-/// Swahili uses a base-10 system with specific words like "laki" (100,000) and the
-/// conjunction "na" is used extensively, except potentially between major scales in year formatting.
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [SwOptions].
-///
-/// **Example Usage:**
-/// ```dart
-/// final converter = Num2Text(initialLang: Lang.SW);
-/// print(converter.convert(123)); // Output: mia moja na ishirini na tatu
-/// print(converter.convert(150000)); // Output: laki moja na elfu hamsini
-/// print(converter.convert(1.5, options: SwOptions(currency: true))); // Output: shilingi moja na senti hamsini
-/// print(converter.convert(1900, options: SwOptions(format: Format.year))); // Output: elfu moja mia tisa
-/// print(converter.convert(2024, options: SwOptions(format: Format.year))); // Output: elfu mbili ishirini na nne
-/// ```
+/// Implements [Num2TextBase] for Swahili. Handles cardinals, currency, years,
+/// decimals, negatives, and large numbers (including "laki").
+/// Uses "na" conjunction appropriately. Customizable via [SwOptions].
 /// {@endtemplate}
 class Num2TextSW implements Num2TextBase {
-  // --- Private Constants ---
-
-  /// The Swahili word for zero.
+  // --- Constants ---
   static const String _zero = "sifuri";
-
-  /// The Swahili word for hundred (used as a base for forming hundreds).
-  static const String _hundred = "mia";
-
-  /// The Swahili word for thousand.
   static const String _thousand = "elfu";
+  static const String _lakh = "laki"; // 100,000
+  static const String _na = "na"; // "and" conjunction
+  static const String _point = "pointi"; // For '.'
+  static const String _comma = "koma"; // For ','
+  static const String _yearSuffixBC = "KK"; // Kabla ya Kristo
+  static const String _yearSuffixAD = "BK"; // Baada ya Kristo
 
-  /// The Swahili word for one hundred thousand (100,000).
-  static const String _lakh = "laki";
-
-  /// The Swahili conjunction "and", used to connect number parts.
-  static const String _na = "na";
-
-  /// The default Swahili word for the decimal point.
-  static const String _point = "pointi";
-
-  /// The Swahili word for comma (used as an alternative decimal separator).
-  static const String _comma = "koma";
-
-  /// The Swahili suffix for BC/BCE years ("Kabla ya Kristo").
-  static const String _yearSuffixBC = "KK";
-
-  /// The Swahili suffix for AD/CE years ("Baada ya Kristo").
-  static const String _yearSuffixAD = "BK";
-
-  /// Words for numbers 0 through 19.
   static const List<String> _wordsUnder20 = [
-    _zero, // 0
-    "moja", // 1
-    "mbili", // 2
-    "tatu", // 3
-    "nne", // 4
-    "tano", // 5
-    "sita", // 6
-    "saba", // 7
-    "nane", // 8
-    "tisa", // 9
-    "kumi", // 10
-    "kumi na moja", // 11
-    "kumi na mbili", // 12
-    "kumi na tatu", // 13
-    "kumi na nne", // 14
-    "kumi na tano", // 15
-    "kumi na sita", // 16
-    "kumi na saba", // 17
-    "kumi na nane", // 18
-    "kumi na tisa", // 19
+    _zero,
+    "moja",
+    "mbili",
+    "tatu",
+    "nne",
+    "tano",
+    "sita",
+    "saba",
+    "nane",
+    "tisa",
+    "kumi",
+    "kumi na moja",
+    "kumi na mbili",
+    "kumi na tatu",
+    "kumi na nne",
+    "kumi na tano",
+    "kumi na sita",
+    "kumi na saba",
+    "kumi na nane",
+    "kumi na tisa",
   ];
-
-  /// Words for tens (20, 30, ..., 90). Index corresponds to tens digit (index 2 = 20).
   static const List<String> _wordsTens = [
-    "", // 0 (unused)
-    "", // 10 (handled by _wordsUnder20)
-    "ishirini", // 20
-    "thelathini", // 30
-    "arobaini", // 40
-    "hamsini", // 50
-    "sitini", // 60
-    "sabini", // 70
-    "themanini", // 80
-    "tisini", // 90
+    "",
+    "",
+    "ishirini",
+    "thelathini",
+    "arobaini",
+    "hamsini",
+    "sitini",
+    "sabini",
+    "themanini",
+    "tisini",
   ];
-
-  /// Words for hundreds (100, 200, ..., 900). Index corresponds to hundreds digit.
   static const List<String> _wordsHundreds = [
-    "", // 0 (unused)
-    "$_hundred moja", // 100
-    "$_hundred mbili", // 200
-    "$_hundred tatu", // 300
-    "$_hundred nne", // 400
-    "$_hundred tano", // 500
-    "$_hundred sita", // 600
-    "$_hundred saba", // 700
-    "$_hundred nane", // 800
-    "$_hundred tisa", // 900
+    // Combined form, e.g., "mia moja"
+    "", "mia moja", "mia mbili", "mia tatu", "mia nne", "mia tano",
+    "mia sita", "mia saba", "mia nane", "mia tisa",
   ];
-
-  /// Scale words (thousand, million, billion, etc.). Index corresponds to power of 1000.
   static const List<String> _scaleWords = [
-    "", // 1000^0 (Units - handled separately)
-    _thousand, // 1000^1
-    "milioni", // 1000^2
-    "bilioni", // 1000^3
-    "trilioni", // 1000^4
-    "kwadrilioni", // 1000^5
-    "kwintilioni", // 1000^6
-    "sekstilioni", // 1000^7
-    "septilioni", // 1000^8
-    // Add more scales here if needed
+    // Index = power of 1000
+    "", _thousand, "milioni", "bilioni", "trilioni", "kwadrilioni",
+    "kwintilioni", "sekstilioni", "septilioni",
   ];
 
-  /// Constant for BigInt 1000.
-  static final BigInt _oneThousand = BigInt.from(1000);
+  static final BigInt _bi1000 = BigInt.from(1000);
+  static final BigInt _bi100k = BigInt.from(100000); // Laki
+  static final BigInt _bi1M = BigInt.from(1000000);
+  static final Decimal _dec100 = Decimal.fromInt(100);
 
-  /// Constant for BigInt 100,000 (Laki).
-  static final BigInt _oneLakh = BigInt.from(100000);
-
-  /// Constant for BigInt 1,000,000 (Million).
-  static final BigInt _oneMillion = BigInt.from(1000000);
-
-  /// Constant for Decimal 100 (used for currency subunits).
-  static final Decimal _decimalOneHundred = Decimal.fromInt(100);
-
-  /// Processes the given number into Swahili words based on the provided options.
+  /// Processes the given [number] into Swahili words.
   ///
-  /// This is the main entry point for the conversion.
+  /// Main entry point. Normalizes input, handles special cases (zero, inf, NaN),
+  /// manages sign, and delegates to specific handlers based on [SwOptions].
   ///
-  /// - [number]: The number to convert (can be `int`, `double`, `BigInt`, `Decimal`, or `String`).
-  /// - [options]: An optional [SwOptions] object to customize the conversion (e.g., currency, year format). If null or not `SwOptions`, default Swahili options are used.
-  /// - [fallbackOnError]: An optional string to return if the input `number` is invalid or cannot be processed. If null, a default error message ("Si nambari") is used.
-  ///
-  /// Returns:
-  ///   The Swahili word representation of the number, or an error/fallback string.
+  /// @param number The number to convert.
+  /// @param options Optional [SwOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Swahili words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
     final SwOptions swOptions =
         options is SwOptions ? options : const SwOptions();
-    final String fallback = fallbackOnError ?? "Si nambari"; // Default fallback
+    final String fallback = fallbackOnError ?? "Si Nambari";
 
-    // Handle special double values first
     if (number is double) {
-      if (number.isInfinite)
-        return number.isNegative ? "Hasi ukomo" : "Ukomo"; // Use lowercase
+      if (number.isInfinite) return number.isNegative ? "Hasi Ukomo" : "Ukomo";
       if (number.isNaN) return fallback;
     }
 
-    // Normalize the input number to Decimal
     final Decimal? decimalValue = Utils.normalizeNumber(number);
     if (decimalValue == null) return fallback;
 
-    // Handle zero separately for clarity and potential currency format
     if (decimalValue == Decimal.zero) {
-      if (swOptions.currency) {
-        // Ensure mainUnitSingular is used for zero currency.
-        return "${swOptions.currencyInfo.mainUnitSingular} $_zero";
-      }
-      return _zero;
+      return swOptions.currency
+          ? "${swOptions.currencyInfo.mainUnitSingular} $_zero" // Use singular for zero currency
+          : _zero;
     }
 
-    // Determine sign and use absolute value for core conversion
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-
-    // Branch based on formatting options
     if (swOptions.format == Format.year) {
-      // Year formatting requires integer part only
       textResult = _handleYearFormat(
           absValue.truncate().toBigInt(), isNegative, swOptions);
-    } else if (swOptions.currency) {
-      // Currency uses standard 'na' usage
-      textResult = _handleCurrency(absValue, swOptions);
     } else {
-      // Standard numbers use standard 'na' usage
-      textResult = _handleStandardNumber(absValue, swOptions);
+      textResult = swOptions.currency
+          ? _handleCurrency(absValue, swOptions)
+          : _handleStandardNumber(absValue, swOptions);
+      // Apply negative prefix only if not handled by year format
+      if (isNegative) {
+        textResult = "${swOptions.negativePrefix} $textResult";
+      }
     }
-
-    // Prepend negative prefix if needed (and not handled by year format)
-    if (isNegative && swOptions.format != Format.year) {
-      textResult = "${swOptions.negativePrefix} $textResult";
-    }
-
-    // Return the final trimmed result
     return textResult.trim();
   }
 
-  /// Formats a number as a Swahili year.
+  /// Converts an integer year to Swahili words with optional era suffixes.
   ///
-  /// Handles positive and negative years, adding "KK" (BC/BCE) for negative
-  /// years and "BK" (AD/CE) for positive years if `options.includeAD` is true.
-  /// Importantly, it typically omits the conjunction "na" between major scales
-  /// (e.g., "elfu moja mia tisa" for 1900, not "elfu moja na mia tisa").
+  /// Omits "na" between major scales (e.g., "elfu moja mia tisa").
+  /// Appends "KK" (BC) or "BK" (AD).
   ///
-  /// - [absYearValue]: The absolute (non-negative) year value as a BigInt.
-  /// - [isOriginalNegative]: Whether the original input year was negative.
-  /// - [options]: The Swahili options, specifically checking `includeAD`.
-  ///
-  /// Returns:
-  ///   The formatted year string.
+  /// @param absYearValue Absolute year value.
+  /// @param isOriginalNegative True if original year was negative.
+  /// @param options Formatting options.
+  /// @return The year as Swahili words.
   String _handleYearFormat(
       BigInt absYearValue, bool isOriginalNegative, SwOptions options) {
-    // Convert the absolute year value to words, explicitly WITHOUT 'na' between scales
+    // Years typically omit 'na' between scales.
     String yearText = _convertInteger(absYearValue, includeNa: false);
 
-    // Append appropriate suffix based on original sign and options
-    if (isOriginalNegative) {
+    if (isOriginalNegative)
       yearText += " $_yearSuffixBC";
-    } else if (options.includeAD) {
-      yearText += " $_yearSuffixAD";
-    }
+    else if (options.includeAD) yearText += " $_yearSuffixAD";
+
     return yearText;
   }
 
-  /// Formats a number as Swahili currency.
+  /// Converts a non-negative [Decimal] to Swahili currency words.
   ///
-  /// Handles main units (e.g., Shilingi) and subunits (e.g., Senti)
-  /// using the details from `options.currencyInfo`. Uses standard Swahili
-  /// conjunction ("na") rules.
+  /// Uses [SwOptions.currencyInfo] for units. Rounds if [SwOptions.round].
+  /// Includes "na" conjunction.
   ///
-  /// - [absValue]: The absolute (non-negative) `Decimal` value of the currency.
-  /// - [options]: The Swahili options, providing `currencyInfo` and `round` settings.
-  ///
-  /// Returns:
-  ///   The formatted currency string.
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options.
+  /// @return Currency value as Swahili words.
   String _handleCurrency(Decimal absValue, SwOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    const int decimalPlaces = 2; // Standard for most currencies
-
-    // Round the value if requested, otherwise use as is
-    final Decimal valueToConvert =
-        options.round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main and subunit values
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    // Calculate subunit value carefully from the fractional part
-    final BigInt subunitValue =
-        ((valueToConvert - valueToConvert.truncate()) * _decimalOneHundred)
-            .truncate() // Use truncate, not round, after multiplication
-            .toBigInt();
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal =
+        ((val - val.truncate()) * _dec100).round(scale: 0).toBigInt();
 
     final StringBuffer buffer = StringBuffer();
 
-    // Add main unit part if greater than zero or if subunit is zero (to handle 0.00 case)
-    if (mainValue > BigInt.zero || subunitValue == BigInt.zero) {
-      // Convert main part WITH 'na' (standard)
-      final String mainText = _convertInteger(mainValue, includeNa: true);
-      // Determine pluralization for the main unit (usually invariable in Swahili currency names)
-      // Use singular for 1, plural/singular otherwise.
-      final String mainUnitName = (mainValue == BigInt.one)
-          ? currencyInfo.mainUnitSingular
-          : currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
-      buffer.write('$mainUnitName $mainText');
+    // Handle main part (always include if subunit is zero, or if main value > 0)
+    if (mainVal > BigInt.zero || subVal == BigInt.zero) {
+      final String mainText = _convertInteger(mainVal, includeNa: true);
+      final String mainUnit = (mainVal == BigInt.one)
+          ? info.mainUnitSingular
+          : (info.mainUnitPlural ?? info.mainUnitSingular);
+      buffer.write('$mainUnit $mainText'); // e.g., "shilingi moja"
     }
 
-    // Add subunit part if greater than zero
-    if (subunitValue > BigInt.zero) {
-      // Add separator ("na") if both main and subunit parts exist
-      final String separator = currencyInfo.separator ?? _na;
-      if (buffer.isNotEmpty && separator.isNotEmpty) {
-        buffer.write(' $separator ');
+    // Handle subunit part
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      if (buffer.isNotEmpty) {
+        // Add separator if main part exists
+        buffer.write(' ${info.separator ?? _na} ');
       }
+      final String subText = _convertInteger(subVal, includeNa: true);
+      final String subUnit = (subVal == BigInt.one)
+          ? info.subUnitSingular!
+          : (info.subUnitPlural ?? info.subUnitSingular!);
+      buffer.write('$subUnit $subText'); // e.g., "senti hamsini"
+    }
 
-      // Convert subunit part WITH 'na' (standard)
-      final String subunitText = _convertInteger(subunitValue, includeNa: true);
-      // Ensure subUnitSingular is not null before accessing
-      final String defaultSubUnit = currencyInfo.subUnitSingular ?? '';
-      // Determine pluralization for the subunit (usually invariable)
-      final String subUnitName = (subunitValue == BigInt.one)
-          ? defaultSubUnit
-          : currencyInfo.subUnitPlural ?? defaultSubUnit;
-      buffer.write('$subUnitName $subunitText');
+    // Catch exact zero after rounding/processing
+    if (buffer.isEmpty && mainVal == BigInt.zero && subVal == BigInt.zero) {
+      return "${info.mainUnitPlural ?? info.mainUnitSingular} $_zero";
     }
 
     return buffer.toString();
   }
 
-  /// Handles standard number conversion (integers and decimals).
+  /// Converts a non-negative standard [Decimal] number to Swahili words.
   ///
-  /// Converts the integer part and the fractional part separately and joins them
-  /// with the appropriate decimal separator word ("pointi" or "koma").
-  /// Uses standard Swahili conjunction ("na") rules for the integer part.
-  /// Fractional digits are converted individually.
+  /// Handles integer and fractional parts. Uses [SwOptions.decimalSeparator].
+  /// Uses "na" for integer part. Fractional digits converted individually.
   ///
-  /// - [absValue]: The absolute (non-negative) `Decimal` value.
-  /// - [options]: The Swahili options, providing `decimalSeparator`.
-  ///
-  /// Returns:
-  ///   The formatted standard number string.
+  /// @param absValue Absolute decimal value.
+  /// @param options Formatting options.
+  /// @return Number as Swahili words.
   String _handleStandardNumber(Decimal absValue, SwOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
 
-    // Convert integer part WITH 'na' (standard)
+    // Convert integer part using standard 'na' rules.
     final String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
             ? _zero
             : _convertInteger(integerPart, includeNa: true);
 
-    // Handle fractional part if it exists
     if (fractionalPart > Decimal.zero) {
-      final StringBuffer fractionalBuffer = StringBuffer();
-
-      // Determine the separator word based on options
-      final String separatorWord;
+      String sepWord;
       switch (options.decimalSeparator ?? DecimalSeparator.period) {
-        // Default to period
+        // Default point
         case DecimalSeparator.comma:
-          separatorWord = _comma;
+          sepWord = _comma;
           break;
-        case DecimalSeparator.point:
-        case DecimalSeparator.period:
-          separatorWord = _point;
-          break;
+        default:
+          sepWord = _point;
+          break; // Point/Period
       }
-      fractionalBuffer.write(' $separatorWord');
 
-      // Get fractional digits as a string
       String fractionalDigits = absValue.toString().split('.').last;
+      List<String> digitWords = fractionalDigits.split('').map((digit) {
+        final int d = int.parse(digit);
+        return (d >= 0 && d <= 9) ? _wordsUnder20[d] : '?';
+      }).toList();
 
-      // Convert each digit individually
-      fractionalDigits.split('').forEach((digit) {
-        final int digitInt = int.parse(digit);
-        // Ensure index is within bounds (0-9)
-        fractionalBuffer.write(' ${_wordsUnder20[digitInt]}');
-      });
-      return '$integerWords${fractionalBuffer.toString()}';
+      return '$integerWords $sepWord ${digitWords.join(' ')}';
     } else {
-      // No fractional part, return only integer words
       return integerWords;
     }
   }
 
-  /// Converts a non-negative integer `BigInt` into Swahili words.
+  /// Converts a non-negative [BigInt] into Swahili words.
   ///
-  /// This function orchestrates the conversion by breaking the number
-  /// down into chunks based on Swahili's number system structure
-  /// (thousands, lakhs, millions, etc.).
+  /// Breaks number by millions, lakhs, thousands, and remaining chunk.
+  /// Uses `includeNa` to control conjunction between scales.
   ///
-  /// - [n]: The non-negative `BigInt` to convert.
-  /// - [includeNa]: Whether to include the conjunction "na" between major scales
-  ///     (lakhs/thousands, millions/lakhs, etc.). Defaults to `true`. Should be
-  ///     `false` for year formatting.
-  ///
-  /// Returns:
-  ///   The Swahili word representation of the integer.
-  /// Throws [ArgumentError] if `n` is negative or too large for defined scales.
+  /// @param n Non-negative integer.
+  /// @param includeNa Whether to include "na" between scales (default true).
+  /// @return Integer as Swahili words.
   String _convertInteger(BigInt n, {bool includeNa = true}) {
-    if (n == BigInt.zero) return _zero;
     if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
+    if (n == BigInt.zero)
+      return includeNa ? _zero : ""; // Handle zero based on context
 
-    // Handle numbers less than a million using a dedicated helper, passing includeNa
-    if (n < _oneMillion) {
+    // Use simpler structure for numbers < 1 Million for clarity
+    if (n < _bi1M) {
       return _convertUnderMillion(n, includeNa: includeNa);
     }
 
-    final StringBuffer buffer = StringBuffer();
-    BigInt remainder = n;
+    // Handle numbers >= 1 Million using scale words
+    List<String> parts = [];
+    BigInt currentRemainder = n;
+    final String separator = includeNa ? ' $_na ' : ' ';
 
-    // Determine the highest scale needed (million, billion, etc.)
-    int scaleIndex = 0;
-    BigInt tempN = n;
-    // Calculate the highest scale index (power of 1000)
-    while (tempN >= _oneThousand) {
-      scaleIndex++;
-      tempN ~/= _oneThousand;
-    }
-
-    // Check if the scale index is within the supported range
-    if (scaleIndex >= _scaleWords.length) {
-      throw ArgumentError(
-          "Number too large (exceeds defined scales: ${_scaleWords.last})");
-    }
-
-    // Iterate down through scales (billion, million, etc., starting from index 2 for million)
-    for (int i = scaleIndex; i >= 2; i--) {
-      BigInt scalePower = BigInt.from(1000).pow(i);
-      BigInt chunk =
-          remainder ~/ scalePower; // Number of millions, billions, etc.
-      remainder %= scalePower; // Remaining part after this scale
-
-      if (chunk == BigInt.zero) continue; // Skip if this scale chunk is zero
-
-      // Convert the chunk value (which is less than 1M, so use helper)
-      String chunkText = _convertUnderMillion(
-        chunk,
-        includeNa: true,
-      ); // Always include 'na' within the chunk factor
-
-      // Add separator BETWEEN scales based on includeNa flag
-      if (buffer.isNotEmpty) {
-        buffer.write(includeNa ? ' $_na ' : ' ');
+    // Iterate scales from highest down (million, billion, etc.)
+    for (int i = _scaleWords.length - 1; i >= 2; i--) {
+      // Start from index 2 (million)
+      BigInt scalePower = _bi1000.pow(i);
+      if (currentRemainder >= scalePower) {
+        BigInt chunk = currentRemainder ~/ scalePower;
+        currentRemainder %= scalePower;
+        // Convert the multiplier part using standard 'na' rules
+        String chunkText = _convertUnderMillion(chunk, includeNa: true);
+        parts.add('${_scaleWords[i]} $chunkText');
       }
-      // Add scale word and its converted value
-      buffer.write("${_scaleWords[i]} $chunkText");
     }
 
-    // Handle the remaining part (less than a million)
-    if (remainder > BigInt.zero) {
-      // Add separator BETWEEN last major scale and the under-million part based on includeNa
-      if (buffer.isNotEmpty) {
-        buffer.write(includeNa ? ' $_na ' : ' ');
-      }
-      // Convert the remaining part, passing the includeNa flag down
-      buffer.write(_convertUnderMillion(remainder, includeNa: includeNa));
+    // Process remaining part (under million)
+    if (currentRemainder > BigInt.zero) {
+      parts.add(_convertUnderMillion(currentRemainder, includeNa: true));
     }
 
-    return buffer.toString();
+    return parts.join(separator);
   }
 
-  /// Converts a non-negative integer less than one million (0 to 999,999)
-  /// into Swahili words, handling the special "laki" (100,000) case.
+  /// Converts a non-negative integer under 1,000,000 into Swahili words.
   ///
-  /// - [n]: The non-negative `BigInt` (0 <= n < 1,000,000).
-  /// - [includeNa]: Whether to include "na" between the lakhs/thousands chunk
-  ///     and the final under-thousand chunk.
+  /// Handles lakhs (100k), thousands, and the final 0-999 chunk.
   ///
-  /// Returns:
-  ///   The Swahili word representation.
-  /// Throws [ArgumentError] if `n` is outside the valid range.
+  /// @param n Integer (0 <= n < 1,000,000).
+  /// @param includeNa Whether to include "na" between parts.
+  /// @return Number as Swahili words.
   String _convertUnderMillion(BigInt n, {bool includeNa = true}) {
-    if (n == BigInt.zero)
-      return ""; // Return empty for zero input in this context
-    if (n < BigInt.zero || n >= _oneMillion) {
-      throw ArgumentError(
-          "_convertUnderMillion input must be 0 <= n < 1,000,000: $n");
+    if (n < BigInt.zero || n >= _bi1M) {
+      throw ArgumentError("Input must be 0 <= n < 1,000,000: $n");
     }
+    if (n == BigInt.zero) return ""; // Empty for zero within larger number
 
     final StringBuffer buffer = StringBuffer();
     BigInt remainder = n;
+    final String separator = includeNa ? ' $_na ' : ' ';
 
-    // Handle "Laki" (100,000s)
-    if (remainder >= _oneLakh) {
-      BigInt lakhs = remainder ~/ _oneLakh; // Number of lakhs (1-9)
-      // Convert the count of lakhs (always < 10, handled by _convertUnderThousand)
-      buffer.write("$_lakh ${_convertUnderThousand(lakhs)}");
-      remainder %= _oneLakh; // Remaining part after lakhs
+    // Handle Lakhs (100k)
+    if (remainder >= _bi100k) {
+      BigInt lakhs = remainder ~/ _bi100k;
+      remainder %= _bi100k;
+      // Lakhs prefix uses standard 'na' rules internally
+      buffer.write("$_lakh ${_convertUnderMillion(lakhs, includeNa: true)}");
     }
 
-    // Handle thousands part (0-99,999)
-    if (remainder >= _oneThousand) {
-      BigInt thousands =
-          remainder ~/ _oneThousand; // Number of thousands (1-99)
-      // Add separator BETWEEN lakhs and thousands based on includeNa
-      if (buffer.isNotEmpty) {
-        buffer.write(includeNa ? ' $_na ' : ' ');
-      }
-      // Convert thousand count (internal 'na' handled within _convertUnderThousand)
-      buffer.write("$_thousand ${_convertUnderThousand(thousands)}");
-      remainder %= _oneThousand; // Remaining part after thousands
+    // Handle Thousands
+    if (remainder >= _bi1000) {
+      BigInt thousands = remainder ~/ _bi1000;
+      remainder %= _bi1000;
+      if (buffer.isNotEmpty) buffer.write(separator);
+      // Thousands prefix uses standard 'na' rules internally
+      buffer.write(
+          "$_thousand ${_convertUnderThousand(thousands, includeHundredsTensNa: true)}");
     }
 
-    // Handle the remaining part (less than 1000)
+    // Handle final 0-999 chunk
     if (remainder > BigInt.zero) {
-      // Add separator BETWEEN thousands/lakhs and the under-thousand part based on includeNa
-      if (buffer.isNotEmpty) {
-        buffer.write(includeNa ? ' $_na ' : ' ');
-      }
-      // Convert remainder (internal 'na' handled within _convertUnderThousand)
-      buffer.write(_convertUnderThousand(remainder));
+      if (buffer.isNotEmpty) buffer.write(separator);
+      buffer
+          .write(_convertUnderThousand(remainder, includeHundredsTensNa: true));
     }
 
     return buffer.toString();
   }
 
-  /// Converts a non-negative integer less than one thousand (0 to 999)
-  /// into Swahili words. Handles the internal connections (e.g., between
-  /// hundreds and tens/units) using the standard "na".
+  /// Converts an integer from 0 to 999 into Swahili words.
   ///
-  /// - [n]: The non-negative `BigInt` (0 <= n < 1000).
+  /// Handles hundreds, tens, and units, inserting "na" where appropriate.
   ///
-  /// Returns:
-  ///   The Swahili word representation.
-  /// Throws [ArgumentError] if `n` is outside the valid range.
-  String _convertUnderThousand(BigInt n) {
-    if (n == BigInt.zero) return ""; // Return empty for zero in this context
-    if (n < BigInt.zero || n >= _oneThousand) {
-      throw ArgumentError(
-          "_convertUnderThousand input must be 0 <= n < 1000: $n");
+  /// @param n Integer chunk (0-999).
+  /// @param includeHundredsTensNa Whether to include "na" between hundreds and tens/units.
+  /// @return Chunk as Swahili words, or empty string if [n] is 0.
+  String _convertUnderThousand(BigInt n, {bool includeHundredsTensNa = true}) {
+    if (n < BigInt.zero || n >= _bi1000) {
+      throw ArgumentError("Input must be 0 <= n < 1000: $n");
     }
+    if (n == BigInt.zero) return ""; // Empty for zero chunk
 
-    int num = n.toInt(); // Safe to convert to int as n < 1000
+    int num = n.toInt();
     final StringBuffer buffer = StringBuffer();
     int remainder = num;
+    final String separator = includeHundredsTensNa ? ' $_na ' : ' ';
 
     // Handle hundreds
     if (remainder >= 100) {
-      buffer.write(_wordsHundreds[remainder ~/ 100]);
+      buffer.write(_wordsHundreds[remainder ~/ 100]); // e.g., "mia moja"
       remainder %= 100;
     }
 
-    // Handle tens and units
+    // Handle tens and units (0-99)
     if (remainder > 0) {
-      // Add "na" if there was a hundreds part
-      if (buffer.isNotEmpty) {
-        buffer.write(' $_na ');
-      }
-
+      if (buffer.isNotEmpty) buffer.write(separator);
       if (remainder < 20) {
-        // Numbers 1-19
-        buffer.write(_wordsUnder20[remainder]);
+        buffer.write(_wordsUnder20[remainder]); // 1-19
       } else {
-        // Numbers 20-99
-        buffer.write(_wordsTens[remainder ~/ 10]);
+        buffer.write(_wordsTens[remainder ~/ 10]); // 20, 30...
         int unit = remainder % 10;
         if (unit > 0) {
-          // Add "na" before the unit > 0
-          buffer.write(' $_na ');
+          buffer.write(' $_na '); // Always 'na' between tens and units > 0
           buffer.write(_wordsUnder20[unit]);
         }
       }
     }
-
     return buffer.toString();
   }
 }

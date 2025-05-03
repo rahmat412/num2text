@@ -6,582 +6,499 @@ import '../options/base_options.dart';
 import '../options/ro_options.dart';
 import '../utils/utils.dart';
 
-/// Internal enum to represent grammatical gender context for number conversion.
+/// Internal enum representing grammatical gender context for Romanian number words.
 enum _GenderContext { masculine, feminine, neuter }
 
 /// {@template num2text_ro}
-/// The Romanian language (`Lang.RO`) implementation for converting numbers to words.
+/// Converts numbers to Romanian words (`Lang.RO`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Romanian word representation following standard Romanian grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [RoOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers
-/// (using million/milliard scale). It correctly applies Romanian grammatical rules,
-/// including gender agreement ("unu"/"una", "doi"/"două") and the use of the
-/// preposition "de" before certain scale words.
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [RoOptions].
+/// Implements [Num2TextBase] for Romanian, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, years, and large numbers
+/// (million, miliard scale). Applies Romanian grammar (gender agreement "unu"/"una",
+/// "doi"/"două"; preposition "de").
+/// Customizable via [RoOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextRO implements Num2TextBase {
-  /// Word for zero.
+  // --- Constants ---
   static const String _zero = "zero";
-
-  /// Word for minus sign.
-  static const String _minus = "minus";
-
-  /// Word for decimal comma ",".
-  static const String _virgula = "virgulă";
-
-  /// Word for decimal point ".".
-  static const String _punct = "punct";
-
-  /// Conjunction "and".
-  static const String _si = "și";
-
-  /// Preposition "of" - used before thousands/millions etc. under certain conditions.
+  static const String _virgula =
+      "virgulă"; // Decimal comma "," (default separator).
+  static const String _punct = "punct"; // Decimal point "." word.
+  static const String _si = "și"; // Conjunction "and".
+  /// Preposition "of", used before scale words if preceding number ends in 0 or >= 20.
   static const String _de = "de";
-
-  /// Singular form of "hundred".
-  static const String _suta = "sută";
-
-  /// Plural form of "hundred".
-  static const String _sute = "sute";
-
-  /// Singular form of "thousand".
-  static const String _mie = "mie";
-
-  /// Plural form of "thousand".
-  static const String _mii = "mii";
-
-  /// Suffix for BC years ("înainte de Hristos").
-  static const String _yearSuffixBC = "î.Hr.";
-
-  /// Suffix for AD/CE years ("după Hristos").
-  static const String _yearSuffixAD = "d.Hr.";
-
-  /// Word for Infinity.
+  static const String _suta = "sută"; // Singular "hundred".
+  static const String _sute = "sute"; // Plural "hundreds".
+  static const String _mie = "mie"; // Singular "thousand".
+  static const String _mii = "mii"; // Plural "thousands".
+  static const String _yearSuffixBC = "î.Hr."; // "înainte de Hristos"
+  static const String _yearSuffixAD = "d.Hr."; // "după Hristos"
   static const String _infinity = "Infinit";
+  static const String _negativeInfinity = "Infinit Negativ";
+  static const String _notANumber = "Nu Este Un Număr"; // Default fallback/NaN.
 
-  /// Word for Negative Infinity.
-  static const String _negativeInfinity = "Infinit negativ";
-
-  /// Word for Not a Number.
-  static const String _notANumber = "Nu este un număr";
-
-  /// Masculine forms for digits 1-9. Index 0 is unused.
+  /// Base unit words (masculine form). Index 0 unused.
   static const List<String> _unitsMasculine = [
-    "", // 0
-    "unu", // 1
-    "doi", // 2
-    "trei", // 3
-    "patru", // 4
-    "cinci", // 5
-    "șase", // 6
-    "șapte", // 7
-    "opt", // 8
-    "nouă", // 9
+    "",
+    "unu",
+    "doi",
+    "trei",
+    "patru",
+    "cinci",
+    "șase",
+    "șapte",
+    "opt",
+    "nouă"
   ];
 
-  /// Feminine forms for digits 1-9. Index 0 is unused.
+  /// Base unit words (feminine form). Index 0 unused.
   static const List<String> _unitsFeminine = [
-    "", // 0
-    "una", // 1
-    "două", // 2
-    "trei", // 3
-    "patru", // 4
-    "cinci", // 5
-    "șase", // 6
-    "șapte", // 7
-    "opt", // 8
-    "nouă", // 9
+    "",
+    "una",
+    "două",
+    "trei",
+    "patru",
+    "cinci",
+    "șase",
+    "șapte",
+    "opt",
+    "nouă"
   ];
 
-  /// Neuter forms for digits 1-9 (same as masculine). Index 0 is unused.
+  /// Base unit words (neuter form - same as masculine). Index 0 unused.
   static const List<String> _unitsNeuter = [
-    "", // 0
-    "unu", // 1
-    "doi", // 2
-    "trei", // 3
-    "patru", // 4
-    "cinci", // 5
-    "șase", // 6
-    "șapte", // 7
-    "opt", // 8
-    "nouă", // 9
+    "",
+    "unu",
+    "doi",
+    "trei",
+    "patru",
+    "cinci",
+    "șase",
+    "șapte",
+    "opt",
+    "nouă"
   ];
 
-  /// Words for numbers 10-19.
   static const List<String> _teens = [
-    "zece", // 10
-    "unsprezece", // 11
-    "doisprezece", // 12
-    "treisprezece", // 13
-    "paisprezece", // 14
-    "cincisprezece", // 15
-    "șaisprezece", // 16
-    "șaptesprezece", // 17
-    "optsprezece", // 18
-    "nouăsprezece", // 19
+    "zece",
+    "unsprezece",
+    "doisprezece",
+    "treisprezece",
+    "paisprezece",
+    "cincisprezece",
+    "șaisprezece",
+    "șaptesprezece",
+    "optsprezece",
+    "nouăsprezece",
   ];
-
-  /// Words for tens (20-90). Indices 0 and 1 unused.
   static const List<String> _tens = [
-    "", // 0
-    "", // 10
-    "douăzeci", // 20
-    "treizeci", // 30
-    "patruzeci", // 40
-    "cincizeci", // 50
-    "șaizeci", // 60
-    "șaptezeci", // 70
-    "optzeci", // 80
-    "nouăzeci", // 90
+    "",
+    "",
+    "douăzeci",
+    "treizeci",
+    "patruzeci",
+    "cincizeci",
+    "șaizeci",
+    "șaptezeci",
+    "optzeci",
+    "nouăzeci",
   ];
 
-  /// Defines the large number scale words (singular/plural) and their grammatical gender ('g').
-  /// Index corresponds to the power of 1,000,000 (1=million, 2=billion(miliard),...).
-  /// Gender: 'm' = masculine, 'n' = neuter (although trilion/etc. are often treated as masculine in agreement).
+  /// Scale words. Index corresponds to power of 1,000,000 (1=million, 2=milliard...).
+  /// 's': singular, 'p': plural, 'g': grammatical gender of the noun itself.
   static const List<Map<String, String>> _scaleWords = [
-    // Index 0: Represents units/thousands, handled separately.
-    {"s": "", "p": "", "g": "n"}, // Placeholder, not used directly for scales.
-    // Index 1: Million (10^6)
-    {"s": "milion", "p": "milioane", "g": "n"}, // Neuter noun
-    // Index 2: Milliard (10^9)
-    {"s": "miliard", "p": "miliarde", "g": "n"}, // Neuter noun
-    // Index 3: Trillion (10^12)
-    {"s": "trilion", "p": "trilioane", "g": "n"}, // Neuter noun
-    // Index 4: Quadrillion (10^15)
-    {"s": "cvadrilion", "p": "cvadrilioane", "g": "n"}, // Neuter noun
-    // Index 5: Quintillion (10^18)
-    {"s": "cvintilion", "p": "cvintilioane", "g": "n"}, // Neuter noun
-    // Index 6: Sextillion (10^21)
-    {"s": "sextilion", "p": "sextilioane", "g": "n"}, // Neuter noun
-    // Index 7: Septillion (10^24)
-    {"s": "septilion", "p": "septilioane", "g": "n"}, // Neuter noun
-    // Add more scales if needed
+    {
+      "s": "",
+      "p": "",
+      "g": "n"
+    }, // Index 0: Placeholder (units/thousands handled differently)
+    {"s": "milion", "p": "milioane", "g": "n"}, // Index 1: 10^6 (Neuter)
+    {"s": "miliard", "p": "miliarde", "g": "n"}, // Index 2: 10^9 (Neuter)
+    {"s": "trilion", "p": "trilioane", "g": "n"}, // Index 3: 10^12 (Neuter)
+    {
+      "s": "cvadrilion",
+      "p": "cvadrilioane",
+      "g": "n"
+    }, // Index 4: 10^15 (Neuter)
+    {
+      "s": "cvintilion",
+      "p": "cvintilioane",
+      "g": "n"
+    }, // Index 5: 10^18 (Neuter)
+    {"s": "sextilion", "p": "sextilioane", "g": "n"}, // Index 6: 10^21 (Neuter)
+    {"s": "septilion", "p": "septilioane", "g": "n"}, // Index 7: 10^24 (Neuter)
   ];
 
-  /// Processes the given [number] and converts it into Romanian words.
+  /// Processes the given [number] into Romanian words.
   ///
-  /// This is the main entry point for the Romanian conversion.
-  /// - Normalizes the input [number].
-  /// - Handles special cases like zero, infinity, NaN.
-  /// - Manages the negative sign using [RoOptions.negativePrefix].
-  /// - Delegates based on [options]: [_handleYearFormat], [_handleCurrency], [_handleStandardNumber].
-  /// - Returns the final word representation or fallback error message.
+  /// {@template num2text_process_intro}
+  /// Normalizes input (`int`, `double`, `BigInt`, `Decimal`, `String`) to [Decimal].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_options}
+  /// Uses [RoOptions] for customization (currency, year format, decimals, negative prefix, AD/BC).
+  /// Defaults apply if [options] is null or not [RoOptions].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_errors}
+  /// Handles `Infinity`, `NaN`. Returns [fallbackOnError] or [_notANumber] on failure.
+  /// {@endtemplate}
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [RoOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Romanian words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Romanian-specific options, using defaults if none are provided.
     final RoOptions roOptions =
         options is RoOptions ? options : const RoOptions();
+    final String errorFallback = fallbackOnError ?? _notANumber;
 
-    // Handle special double values before normalization.
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? _negativeInfinity : _infinity;
-      }
-      if (number.isNaN) {
-        return fallbackOnError ?? _notANumber;
-      }
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal for precision.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    if (decimalValue == null) {
-      return fallbackOnError ?? _notANumber; // Handle normalization failure
-    }
-
-    // Handle the specific case of zero.
     if (decimalValue == Decimal.zero) {
-      if (roOptions.currency) {
-        // For currency, use "zero" and the plural main unit name.
-        return "$_zero ${roOptions.currencyInfo.mainUnitPlural}";
-      } else {
-        // For years or standard numbers, just return "zero".
-        return _zero;
-      }
+      return roOptions.currency
+          ? "$_zero ${roOptions.currencyInfo.mainUnitPlural}" // Use plural for zero currency
+          : _zero;
     }
 
-    // Determine sign and work with the absolute value.
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-    // Delegate based on the format specified in options.
     if (roOptions.format == Format.year) {
-      // Handle year formatting (may include BC/AD suffixes).
+      // Year conversion handles sign via AD/BC suffixes.
       textResult =
           _handleYearFormat(decimalValue.truncate().toBigInt(), roOptions);
     } else {
-      // Handle non-year formats (currency or standard number).
-      if (roOptions.currency) {
-        textResult = _handleCurrency(absValue, roOptions);
-      } else {
-        textResult = _handleStandardNumber(absValue, roOptions);
-      }
-      // Prepend the negative prefix if the original number was negative.
+      textResult = roOptions.currency
+          ? _handleCurrency(absValue, roOptions)
+          : _handleStandardNumber(absValue, roOptions);
       if (isNegative) {
-        // Use "minus" specifically if the prefix is set to that, otherwise use the custom prefix.
-        String prefix = (roOptions.negativePrefix.trim() == _minus)
-            ? _minus
-            : roOptions.negativePrefix.trim();
+        String prefix = roOptions.negativePrefix.trim();
         textResult = "$prefix $textResult";
       }
     }
 
-    return textResult; // Return the final result.
+    // Clean up potential double spaces from combining parts.
+    return textResult.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// Formats a [BigInt] [year] as a Romanian year string.
+  /// Converts a non-negative [Decimal] to Romanian currency words.
   ///
-  /// Handles negative years by appending "î.Hr." (BC).
-  /// Handles positive years by optionally appending "d.Hr." (AD/CE) if [options.includeAD] is true.
-  /// Uses neuter gender for year numbers.
+  /// Uses [RoOptions.currencyInfo] for unit names. Rounds if [RoOptions.round] is true.
+  /// Applies gender rules ('un leu' vs 'o sută de lei') and preposition 'de'.
+  ///
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options.
+  /// @return Currency value as Romanian words.
+  String _handleCurrency(Decimal absValue, RoOptions options) {
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal = ((val - val.truncate()) * Decimal.fromInt(100))
+        .round(scale: 0)
+        .toBigInt();
+
+    String mainPart = "";
+    if (mainVal > BigInt.zero) {
+      String mainText, mainName;
+      // Treat main currency unit as masculine for agreement ("un leu", "doi lei").
+      if (mainVal == BigInt.one) {
+        mainText = "un"; // Masculine 'one'
+        mainName = info.mainUnitSingular;
+      } else {
+        mainText = _convertInteger(mainVal, _GenderContext.masculine);
+        mainName = info.mainUnitPlural!;
+        if (_needsDePreposition(mainVal)) mainText += " $_de";
+      }
+      mainPart = '$mainText $mainName';
+    }
+
+    String subPart = "";
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      String subText, subName;
+      // Assume subunit is masculine for agreement ("un ban", "doi bani"). Adjust if needed.
+      if (subVal == BigInt.one) {
+        subText = "un"; // Masculine 'one'
+        subName = info.subUnitSingular!;
+      } else {
+        subText = _convertInteger(subVal, _GenderContext.masculine);
+        subName = info.subUnitPlural!;
+        if (_needsDePreposition(subVal)) subText += " $_de";
+      }
+      subPart = '$subText $subName';
+    }
+
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      String separator = info.separator ?? _si; // Default separator "și".
+      return '$mainPart $separator $subPart';
+    } else if (mainPart.isNotEmpty)
+      return mainPart;
+    else if (subPart.isNotEmpty)
+      return subPart; // Handle 0.xx cases
+    else
+      return "$_zero ${info.mainUnitPlural}"; // Zero case
+  }
+
+  /// Converts a [BigInt] year to Romanian words.
+  ///
+  /// Uses neuter gender for the year number itself. Appends AD/BC suffixes.
+  ///
+  /// @param year The integer year.
+  /// @param options Formatting options.
+  /// @return The year as Romanian words.
   String _handleYearFormat(BigInt year, RoOptions options) {
     final bool isNegative = year < BigInt.zero;
     final BigInt absYear = isNegative ? -year : year;
-
-    // Convert the absolute year value using neuter gender.
+    // Years typically read using neuter/masculine forms.
     String yearText = _convertInteger(absYear, _GenderContext.neuter);
 
-    // Append suffixes for BC/AD.
-    if (isNegative) {
-      yearText += " $_yearSuffixBC"; // Append "before Christ".
-    } else if (options.includeAD && absYear > BigInt.zero) {
-      // Renamed includeAD to includeAD internally
-      yearText +=
-          " $_yearSuffixAD"; // Append "after Christ" if option is set and year > 0.
-    }
+    if (isNegative)
+      yearText += " $_yearSuffixBC";
+    else if (options.includeAD && absYear > BigInt.zero)
+      yearText += " $_yearSuffixAD";
+
     return yearText;
   }
 
-  /// Formats the absolute [absValue] as Romanian currency.
+  /// Converts a non-negative standard [Decimal] number to Romanian words.
   ///
-  /// Uses [CurrencyInfo] from [options]. Optionally rounds.
-  /// Converts main and subunit values using [_convertInteger] with appropriate genders (usually masculine).
-  /// Selects singular/plural forms correctly ("leu"/"lei", "ban"/"bani").
-  /// Applies the "de" preposition before units if needed.
-  /// Joins parts with the separator from [CurrencyInfo] or "și".
-  String _handleCurrency(Decimal absValue, RoOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    final int decimalPlaces = 2; // Standard subunit precision (e.g., bani).
-    final Decimal subunitMultiplier = Decimal.fromInt(100);
-
-    // Round the value if requested before separating parts.
-    Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Round subunit value to nearest integer (e.g., 0.5 -> 1).
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).round(scale: 0).toBigInt();
-
-    String mainText;
-    String mainUnitName;
-
-    // Handle main unit: "un leu" vs "doi lei".
-    if (mainValue == BigInt.one) {
-      mainText = "un"; // Special form for 1 (masculine).
-      mainUnitName = currencyInfo.mainUnitSingular;
-    } else {
-      // Convert using masculine gender (for Leu).
-      mainText = _convertInteger(mainValue, _GenderContext.masculine);
-      mainUnitName = currencyInfo.mainUnitPlural!; // Use plural form.
-      // Add "de" if grammatically required (e.g., "douăzeci de lei").
-      if (_needsDePreposition(mainValue)) {
-        mainText += " $_de";
-      }
-    }
-
-    String result = '$mainText $mainUnitName'; // e.g., "o sută de lei"
-
-    // Add subunit part if it exists.
-    if (subunitValue > BigInt.zero) {
-      String subunitText;
-      String subUnitName;
-
-      // Handle subunit: "un ban" vs "doi bani".
-      if (subunitValue == BigInt.one) {
-        subunitText = "un"; // Special form for 1 (masculine).
-        subUnitName = currencyInfo.subUnitSingular!;
-      } else {
-        // Convert using masculine gender (for Ban).
-        subunitText = _convertInteger(subunitValue, _GenderContext.masculine);
-        subUnitName = currencyInfo.subUnitPlural!; // Use plural form.
-        // Add "de" if needed (e.g., "douăzeci de bani").
-        if (_needsDePreposition(subunitValue)) {
-          subunitText += " $_de";
-        }
-      }
-
-      // Get separator ("și" or custom).
-      String separator = " ${currencyInfo.separator ?? _si} ";
-      // Append separator and subunit part.
-      result +=
-          '$separator$subunitText $subUnitName'; // e.g., " și cincizeci de bani"
-    }
-
-    return result;
-  }
-
-  /// Formats the absolute [absValue] as a standard Romanian cardinal number.
+  /// Converts integer and fractional parts. Uses [RoOptions.decimalSeparator] word.
+  /// Integer part uses neuter gender. Fractional part converted digit by digit (neuter).
   ///
-  /// Handles integer and fractional parts. Converts integer part using [_convertInteger]
-  /// (defaults to neuter). Converts fractional part digit by digit using neuter forms,
-  /// joined by spaces, prefixed by the decimal separator word ("virgulă" or "punct").
+  /// @param absValue Absolute decimal value.
+  /// @param options Formatting options.
+  /// @return Number as Romanian words.
   String _handleStandardNumber(Decimal absValue, RoOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
-
-    // Convert integer part (use "zero" if integer is 0 but fractional exists).
-    // Use neuter gender for standalone numbers.
-    String integerWords =
+    // Use neuter for standalone numbers.
+    final String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _zero
+            ? _zero // Use "zero" for 0.xxx cases
             : _convertInteger(integerPart, _GenderContext.neuter);
 
     String fractionalWords = '';
-    // Process fractional part if it exists.
     if (fractionalPart > Decimal.zero) {
-      // Determine the separator word based on options.
-      String separatorWord;
+      String sepWord;
       switch (options.decimalSeparator) {
-        case DecimalSeparator.comma:
-        case null: // Default to comma
-          separatorWord = _virgula;
-          break;
+        case DecimalSeparator.point:
         case DecimalSeparator.period:
-        case DecimalSeparator.point: // Treat period and point the same.
-          separatorWord = _punct;
+          sepWord = _punct;
           break;
+        default:
+          sepWord = _virgula;
+          break; // Default to comma
       }
 
-      // Get fractional digits as string.
-      String fractionalDigits = absValue.toString().split('.').last;
-      // Convert each digit character to its word form (using neuter).
-      List<String> digitWords = fractionalDigits.split('').map((digit) {
-        final int digitInt = int.parse(digit);
-        return _convertDigit(
-            digitInt); // Use helper for single digit conversion
-      }).toList();
-      // Combine separator and digit words.
+      String digitsStr = absValue.toString().split('.').last;
+      // Convert each digit using neuter form via _convertDigit.
+      List<String> digitWords =
+          digitsStr.split('').map((d) => _convertDigit(int.parse(d))).toList();
       fractionalWords =
-          ' $separatorWord ${digitWords.join(' ')}'; // e.g., " virgulă cinci zero"
+          ' $sepWord ${digitWords.join(' ')}'; // e.g., " virgulă unu doi"
     }
 
-    return '$integerWords$fractionalWords'.trim(); // Combine parts and trim.
+    return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a single digit (0-9) integer to its Romanian word form (neuter).
-  String _convertDigit(int digit) {
-    if (digit >= 0 && digit <= 9) {
-      return _unitsNeuter[
-          digit]; // Use neuter forms for digits after decimal point.
-    }
-    return "?"; // Fallback for invalid input.
-  }
-
-  /// Converts a non-negative [BigInt] [n] into its Romanian word representation.
+  /// Converts a non-negative [BigInt] into Romanian words with gender agreement.
   ///
-  /// Breaks the number down into chunks of 1000.
-  /// Recursively calls [_convertChunk] for each chunk.
-  /// Applies the correct scale word (mie, milion, miliard, etc.) based on position.
-  /// Manages gender agreement between the chunk number and the scale word.
-  /// Applies the "de" preposition where necessary.
-  /// [genderContext] specifies the required gender for the final chunk (0-999) if no scale word follows.
+  /// Handles large numbers by breaking into chunks of 1000. Applies scale words
+  /// (mie, milion...) and the preposition "de" correctly based on Romanian grammar.
+  ///
+  /// @param n The non-negative integer.
+  /// @param genderContext The required grammatical [_GenderContext] for the final part
+  ///                      of the number (if it's 1 or 2 influencing the word).
+  /// @return The integer as Romanian words.
+  /// @throws ArgumentError if [n] is negative or too large for defined scales.
   String _convertInteger(BigInt n, _GenderContext genderContext) {
-    if (n < BigInt.zero) {
-      throw ArgumentError("Integer must be non-negative: $n");
-    }
-    if (n == BigInt.zero) return _zero; // Base case: Zero.
+    if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
+    if (n == BigInt.zero) return _zero;
 
-    List<String> parts = []; // Stores word chunks for each scale.
+    List<String> parts = [];
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleIndex = 0; // 0=units, 1=thousands, 2=millions,...
+    int scaleLevel =
+        0; // 0: 0-999, 1: thousands, 2: millions (index 1 in _scaleWords), ...
     BigInt remaining = n;
 
-    // Process the number in chunks of 1000 from right to left.
     while (remaining > BigInt.zero) {
-      // Extract the current chunk (0-999).
       BigInt chunk = remaining % oneThousand;
-      // Move to the next chunk.
       remaining ~/= oneThousand;
 
-      // Only process non-zero chunks.
       if (chunk > BigInt.zero) {
-        String chunkText;
-        _GenderContext
-            chunkGenderContext; // Gender needed for the number within the chunk.
+        String chunkText; // Words for the number part (1-999)
+        _GenderContext chunkGender; // Gender required *for* the number part
         String scaleWordSingular = "";
         String scaleWordPlural = "";
         _GenderContext scaleNounGender =
-            _GenderContext.neuter; // Gender of the scale noun itself.
+            _GenderContext.neuter; // Gender *of* the scale noun
 
-        // --- Determine scale words and required gender for the chunk ---
-        if (scaleIndex == 1) {
-          // Thousand scale ("mie" - feminine noun)
+        // Determine scale word and required gender for the number before it.
+        if (scaleLevel == 1) {
+          // Thousands (mie/mii - feminine noun)
           scaleWordSingular = _mie;
           scaleWordPlural = _mii;
-          // The numbers before "mie/mii" are feminine ("o mie", "două mii").
-          chunkGenderContext = _GenderContext.feminine;
           scaleNounGender = _GenderContext.feminine;
-        } else if (scaleIndex > 1) {
-          // Million scale and higher
-          int scaleInfoIndex = scaleIndex -
-              1; // Adjust index for _scaleWords (starts at million)
-          if (scaleInfoIndex < _scaleWords.length) {
-            var scaleInfo = _scaleWords[scaleInfoIndex];
-            scaleWordSingular = scaleInfo["s"]!;
-            scaleWordPlural = scaleInfo["p"]!;
-            String genderChar = scaleInfo["g"]!; // Gender of the scale noun
-
-            // Determine scale noun gender.
-            if (genderChar == "m") {
-              scaleNounGender = _GenderContext.masculine;
-            } else if (genderChar == "f") {
-              scaleNounGender = _GenderContext.feminine; // If added later
-            } else {
-              scaleNounGender = _GenderContext.neuter;
-            }
-            // Determine the gender needed for the number *before* the scale noun.
-            // Rule: "un milion" (M/N) vs "două milioane" (F)
-            // Rule: "un miliard" (M/N) vs "două miliarde" (F)
-            if (scaleNounGender == _GenderContext.masculine ||
-                scaleNounGender == _GenderContext.neuter) {
-              chunkGenderContext = (chunk == BigInt.one)
-                  ? _GenderContext.masculine
-                  : _GenderContext.feminine;
-            } else {
-              // Should not happen with current scales, but for completeness
-              chunkGenderContext = (chunk == BigInt.one)
-                  ? _GenderContext.feminine
-                  : _GenderContext.feminine;
-            }
-          } else {
-            // Safety check if number exceeds defined scales.
-            throw ArgumentError(
-                "Number too large, scale index $scaleIndex out of bounds.");
-          }
+          // Requires feminine numbers before mie/mii (e.g., "o mie", "două mii").
+          chunkGender = _GenderContext.feminine;
+        } else if (scaleLevel > 1) {
+          // Millions, Billions, etc. (neuter nouns)
+          int scaleInfoIndex =
+              scaleLevel - 1; // _scaleWords index starts at 1 (million)
+          if (scaleInfoIndex >= _scaleWords.length)
+            throw ArgumentError("Number too large: $n");
+          var scaleInfo = _scaleWords[scaleInfoIndex];
+          scaleWordSingular = scaleInfo["s"]!;
+          scaleWordPlural = scaleInfo["p"]!;
+          // All defined scales (milion, miliard...) are neuter.
+          scaleNounGender = _GenderContext.neuter;
+          // Requires feminine numbers for count > 1 before neuter nouns
+          // ("un milion", "două milioane").
+          chunkGender = (chunk == BigInt.one)
+              ? _GenderContext.neuter
+              : _GenderContext.feminine;
         } else {
-          // Scale index 0 (units chunk)
-          // Use the gender context passed into the function.
-          chunkGenderContext = genderContext;
+          // Scale level 0 (last chunk 0-999)
+          chunkGender = genderContext; // Use the overall required gender.
         }
 
-        // --- Convert the chunk and combine with scale word ---
-        if (chunk == BigInt.one && scaleIndex >= 1) {
-          // Special handling for "one thousand/million/etc."
-          if (scaleNounGender == _GenderContext.feminine) {
-            // "o mie" (feminine 'one')
-            chunkText = "o";
-            parts.add("$chunkText $scaleWordSingular");
-          } else {
-            // "un milion", "un miliard" (masculine/neuter 'one')
-            chunkText = "un";
-            parts.add("$chunkText $scaleWordSingular");
-          }
-        } else {
-          // Convert the 0-999 chunk using the determined gender context.
-          chunkText = _convertChunk(chunk.toInt(), chunkGenderContext);
+        // Convert the chunk number (1-999) using the determined gender.
+        chunkText = _convertChunk(chunk.toInt(), chunkGender);
 
-          if (scaleIndex >= 1) {
-            // If it's a scale word (thousand+)
-            // Choose singular/plural form of the scale word.
-            String scale =
-                (chunk > BigInt.one) ? scaleWordPlural : scaleWordSingular;
-            // Add preposition "de" if needed (e.g., "douăzeci de mii").
-            if (_needsDePreposition(chunk)) {
-              chunkText += " $_de";
-            }
-            // Add the chunk text and the scale word.
-            parts.add("$chunkText $scale");
-          } else {
-            // If it's the last chunk (units), just add the chunk text.
-            parts.add(chunkText);
+        // Combine chunk text with scale word if applicable.
+        if (scaleLevel >= 1) {
+          // Handle "one" before scale word explicitly.
+          if (chunk == BigInt.one) {
+            if (scaleNounGender == _GenderContext.feminine)
+              chunkText = "o"; // "o mie"
+            else
+              chunkText = "un"; // "un milion", "un miliard"
           }
+          // Choose singular/plural scale word.
+          String scale =
+              (chunk == BigInt.one) ? scaleWordSingular : scaleWordPlural;
+          // Add preposition "de" if needed.
+          if (_needsDePreposition(chunk)) chunkText += " $_de";
+          parts.add("$chunkText $scale");
+        } else {
+          parts.add(chunkText); // Just the number for the last chunk.
         }
       }
-      scaleIndex++; // Move to the next higher scale.
-
-      // Safety check against excessively large numbers.
-      if (scaleIndex > _scaleWords.length + 1) {
-        // +1 accounts for 'thousand'
+      scaleLevel++;
+      if (scaleLevel > _scaleWords.length + 1) {
+        // Safety break
         throw ArgumentError(
             "Number too large to convert (exceeds defined scales).");
       }
     }
-    // Join the parts in reverse order (largest scale first) with spaces.
+
     return parts.reversed.join(' ');
   }
 
-  /// Converts an integer [n] between 0 and 999 into Romanian words.
-  /// Handles hundreds, tens, and units, applying the correct [genderContext].
+  /// Converts an integer from 0 to 999 into Romanian words with gender agreement.
+  ///
+  /// Handles hundreds ("o sută", "două sute"), tens ("douăzeci"), teens ("unsprezece"),
+  /// and units, applying the correct gender form based on [genderContext].
+  /// Includes the conjunction "și" correctly (e.g., "douăzeci și unu").
+  ///
+  /// @param n Integer chunk (0-999).
+  /// @param genderContext The required grammatical [_GenderContext] for units 1 or 2.
+  /// @return Chunk as Romanian words, or empty string if [n] is 0.
+  /// @throws ArgumentError if [n] is outside 0-999.
   String _convertChunk(int n, _GenderContext genderContext) {
-    if (n == 0) return ""; // Return empty for zero.
-    if (n < 0 || n >= 1000) {
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
-    }
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
-    List<String> words =
-        []; // Stores parts of the chunk (hundreds, tens/units).
+    List<String> words = [];
     int remainder = n;
 
-    // Handle hundreds place.
+    // Handle hundreds.
     if (remainder >= 100) {
-      int hundredDigit = remainder ~/ 100; // Get hundreds digit (1-9).
-      if (hundredDigit == 1) {
-        // Special case for 100: "o sută".
-        words.add("o"); // Feminine 'one'.
-        words.add(_suta); // Singular 'hundred'.
-      } else if (hundredDigit == 2) {
-        // Special case for 200: "două sute".
-        words.add("două"); // Feminine 'two'.
-        words.add(_sute); // Plural 'hundred'.
-      } else {
-        // For 300-900: use neuter form of digit + plural "sute".
-        words.add(_getUnits(hundredDigit, _GenderContext.neuter));
-        words.add(_sute);
+      int hundredDigit = remainder ~/ 100;
+      if (hundredDigit == 1)
+        words.add("o $_suta"); // "o sută" (feminine 'o')
+      else {
+        // Requires feminine 'două' for 200, neuter/masculine otherwise.
+        _GenderContext hundredGender = (hundredDigit == 2)
+            ? _GenderContext.feminine
+            : _GenderContext.neuter;
+        words.add(
+            "${_getUnits(hundredDigit, hundredGender)} $_sute"); // e.g., "două sute", "trei sute"
       }
-      remainder %= 100; // Update remainder to 0-99.
+      remainder %= 100;
     }
 
-    // Handle remaining tens and units place (0-99).
+    // Handle remaining 0-99 part.
     if (remainder > 0) {
       if (remainder < 10) {
-        // 1-9: Use the appropriate gendered unit form.
+        // Units 1-9
         words.add(_getUnits(remainder, genderContext));
       } else if (remainder < 20) {
-        // 10-19: Use the direct lookup table.
-        words.add(_teens[remainder - 10]);
+        // Teens 10-19
+        // Handle gender for 12: "doisprezece" (M/N) vs "douăsprezece" (F).
+        if (remainder == 12 && genderContext == _GenderContext.feminine)
+          words.add("douăsprezece");
+        else
+          words.add(_teens[remainder - 10]);
       } else {
-        // 20-99:
+        // Tens 20-99
         int tenDigit = remainder ~/ 10;
-        words.add(_tens[tenDigit]); // Add "douăzeci", "treizeci", etc.
+        words.add(_tens[tenDigit]); // e.g., "douăzeci"
         int unitDigit = remainder % 10;
         if (unitDigit > 0) {
-          // If unit is non-zero, add "și" and the unit word with correct gender.
-          words.add(_si); // Add "and".
-          words.add(_getUnits(unitDigit, genderContext)); // Add gendered unit.
+          words.add(_si); // Add "și" before the unit.
+          words.add(_getUnits(unitDigit, genderContext)); // e.g., "și unu"
         }
       }
     }
 
-    // Join the parts (e.g., ["o", "sută", "și", "unu"]) with spaces.
     return words.join(' ');
   }
 
-  /// Returns the correct gendered word for a single digit (1-9).
+  /// Checks if the preposition "de" is needed before a scale word (mie, milion...).
+  /// Rule: Needed if the preceding number is 0 or ends in 00-19 (relative to 100),
+  /// OR if the number is >= 20. Simpler: needed if number is 0 or >= 20, unless ends 01-19.
+  /// A more direct check: needed if number is 0 OR (number >= 20 AND number % 100 is 0 or >= 20).
+  ///
+  /// @param number The number preceding the scale word.
+  /// @return True if "de" should be inserted.
+  bool _needsDePreposition(BigInt number) {
+    if (number == BigInt.zero) return true; // "zero de mii" (though unusual)
+    if (number < BigInt.from(20)) return false; // "nouăsprezece mii" (no de)
+
+    // For numbers >= 20:
+    // If the number ends in 00 or 20-99 (mod 100), "de" is needed.
+    // If the number ends in 01-19 (mod 100), "de" is NOT needed.
+    BigInt remainderMod100 = number % BigInt.from(100);
+    return remainderMod100 == BigInt.zero || remainderMod100 >= BigInt.from(20);
+    // e.g., 20 -> needs de (20 % 100 = 20)
+    // e.g., 100 -> needs de (100 % 100 = 0)
+    // e.g., 101 -> no de (101 % 100 = 1)
+    // e.g., 119 -> no de (119 % 100 = 19)
+    // e.g., 120 -> needs de (120 % 100 = 20)
+  }
+
+  /// Converts a single digit (0-9) to its Romanian word form (neuter).
+  /// Used for decimal parts.
+  String _convertDigit(int digit) {
+    if (digit == 0) return _zero;
+    if (digit > 0 && digit <= 9) return _unitsNeuter[digit];
+    return "?"; // Fallback
+  }
+
+  /// Gets the Romanian word for a unit digit (1-9) based on gender context.
   String _getUnits(int n, _GenderContext context) {
-    if (n < 0 || n > 9) return "?"; // Input validation.
-    // Select the correct list based on the required gender context.
+    if (n <= 0 || n > 9) return "?"; // Only for 1-9
     switch (context) {
       case _GenderContext.feminine:
         return _unitsFeminine[n];
@@ -590,35 +507,5 @@ class Num2TextRO implements Num2TextBase {
       case _GenderContext.neuter:
         return _unitsNeuter[n];
     }
-  }
-
-  /// Checks if the preposition "de" is needed before a scale word (mie, milion, etc.).
-  ///
-  /// Rule: "de" is needed if the preceding number is >= 20 OR if it's exactly 0
-  /// (e.g., in "douăzeci de mii", but not "nouăsprezece mii").
-  /// This applies when the number ends in 00-19 within the last 100.
-  /// Simplified: Needed if number >= 20 and ends in 00-19, or if number is 0 (implies scale word follows 0 count).
-  /// Refined Rule: "de" is needed if the number is >= 20 OR if the number ends in 00..19
-  /// Correction based on grammar: 'de' is required before 'mii', 'milioane', 'miliarde' etc.
-  /// when the preceding number is >= 20, OR when the preceding number is exactly 0.
-  /// It is NOT used for numbers 1-19.
-  /// Example: 19 mii, 20 de mii, 100 de mii, 101 mii, 120 de mii.
-  bool _needsDePreposition(BigInt number) {
-    // No preposition needed for 1-19.
-    if (number > BigInt.zero && number < BigInt.from(20)) return false;
-
-    // Calculate remainder modulo 100 to check the last two digits.
-    BigInt remainderMod100 = number % BigInt.from(100);
-
-    // "de" is needed if the number is >= 20 AND the last two digits are 0.
-    // OR if the number is >= 20 AND the last two digits are >= 20.
-    // Simplified: "de" is needed if number >= 20 and remainderMod100 is 0 or >= 20.
-    return remainderMod100 == BigInt.zero || remainderMod100 >= BigInt.from(20);
-
-    // --- Previous logic (potentially flawed) ---
-    // if (number < BigInt.from(20)) return false; // Not needed for 1-19.
-    // BigInt remainderMod100 = number % BigInt.from(100);
-    // Check if the number ends in 00 up to 19.
-    // return remainderMod100 < BigInt.from(20); // Incorrect: this is where 'de' is NOT needed.
   }
 }

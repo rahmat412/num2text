@@ -1,84 +1,97 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:num2text/num2text.dart';
-import 'package:decimal/decimal.dart';
 
 void main() {
   group('Num2Text Zulu (ZU)', () {
     final converter = Num2Text(initialLang: Lang.ZU);
     final converterWithFallback = Num2Text(
-      initialLang: Lang.ZU,
-      fallbackOnError: "Inani elingekho emthethweni",
-    );
+        initialLang: Lang.ZU, fallbackOnError: "Inani Elingekho Emthethweni");
 
-    test('Basic Numbers', () {
-      expect(converter.convert(0), equals("zero"));
-      expect(converter.convert(1), equals("nye"));
-      expect(converter.convert(2), equals("bili"));
-      expect(converter.convert(3), equals("thathu"));
-      expect(converter.convert(4), equals("ne"));
-      expect(converter.convert(5), equals("hlanu"));
-      expect(converter.convert(6), equals("sithupha"));
-      expect(converter.convert(7), equals("khombisa"));
-      expect(converter.convert(8), equals("shiyagalombili"));
-      expect(converter.convert(9), equals("shiyagalolunye"));
+    test('Basic Numbers (0 - 99)', () {
+      expect(converter.convert(0), equals("qanda"));
       expect(converter.convert(10), equals("lishumi"));
       expect(converter.convert(11), equals("lishumi nanye"));
-      expect(converter.convert(19), equals("lishumi nesishiyagalolunye"));
+      expect(converter.convert(13), equals("lishumi nanthathu"));
+      expect(converter.convert(15), equals("lishumi nanhlanu"));
       expect(converter.convert(20), equals("amashumi amabili"));
-      expect(converter.convert(21), equals("amashumi amabili nanye"));
-      expect(converter.convert(55), equals("amashumi amahlanu nanhlanu"));
+      expect(converter.convert(27), equals("amashumi amabili nesikhombisa"));
+      expect(converter.convert(30), equals("amashumi amathathu"));
+      expect(converter.convert(54), equals("amashumi amahlanu nane"));
+      expect(converter.convert(68),
+          equals("amashumi ayisithupha nesishiyagalombili"));
       expect(converter.convert(99),
           equals("amashumi ayisishiyagalolunye nesishiyagalolunye"));
     });
 
-    test('Hundreds', () {
+    test('Hundreds (100 - 999)', () {
       expect(converter.convert(100), equals("ikhulu"));
       expect(converter.convert(101), equals("ikhulu nanye"));
+      expect(converter.convert(105), equals("ikhulu nanhlanu"));
       expect(converter.convert(110), equals("ikhulu nelishumi"));
       expect(converter.convert(111), equals("ikhulu nelishumi nanye"));
       expect(
           converter.convert(123), equals("ikhulu namashumi amabili nanthathu"));
       expect(converter.convert(200), equals("amakhulu amabili"));
-      expect(converter.convert(500), equals("amakhulu amahlanu"));
-      expect(converter.convert(900), equals("amakhulu ayisishiyagalolunye"));
+      expect(converter.convert(321),
+          equals("amakhulu amathathu namashumi amabili nanye"));
+      expect(converter.convert(479),
+          equals("amakhulu amane namashumi ayisikhombisa nesishiyagalolunye"));
+      expect(converter.convert(596),
+          equals("amakhulu amahlanu namashumi ayisishiyagalolunye nesithupha"));
+      expect(converter.convert(681),
+          equals("amakhulu ayisithupha namashumi ayisishiyagalombili nanye"));
       expect(
-        converter.convert(999),
-        equals(
-            "amakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye"),
-      );
+          converter.convert(999),
+          equals(
+              "amakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye"));
     });
 
-    test('Thousands', () {
+    test('Thousands (1000 - 999999)', () {
       expect(converter.convert(1000), equals("inkulungwane"));
       expect(converter.convert(1001), equals("inkulungwane nanye"));
-      expect(converter.convert(1010), equals("inkulungwane nelishumi"));
-      expect(converter.convert(1100), equals("inkulungwane nekhulu"));
+      expect(converter.convert(1011), equals("inkulungwane nelishumi nanye"));
+      expect(converter.convert(1110), equals("inkulungwane nekhulu nelishumi"));
       expect(converter.convert(1111),
           equals("inkulungwane nekhulu nelishumi nanye"));
       expect(converter.convert(2000), equals("izinkulungwane ezimbili"));
-      expect(converter.convert(5000), equals("izinkulungwane ezinhlanu"));
-      expect(converter.convert(9000),
-          equals("izinkulungwane eziyishiyagalolunye"));
+      expect(
+          converter.convert(2468),
+          equals(
+              "izinkulungwane ezimbili namakhulu amane namashumi ayisithupha nesishiyagalombili"));
+      expect(
+          converter.convert(3579),
+          equals(
+              "izinkulungwane ezintathu namakhulu amahlanu namashumi ayisikhombisa nesishiyagalolunye"));
       expect(converter.convert(10000), equals("izinkulungwane eziyishumi"));
+      expect(converter.convert(10011),
+          equals("izinkulungwane eziyishumi nelishumi nanye"));
+      expect(converter.convert(11100),
+          equals("izinkulungwane eziyishumi nanye nekhulu"));
       expect(
-          converter.convert(11000), equals("izinkulungwane eziyishumi nanye"));
-      expect(converter.convert(21000),
-          equals("izinkulungwane ezingamashumi amabili nanye"));
+          converter.convert(12987),
+          equals(
+              "izinkulungwane eziyishumi nambili namakhulu ayisishiyagalolunye namashumi ayisishiyagalombili nesikhombisa"));
+      expect(
+          converter.convert(45623),
+          equals(
+              "izinkulungwane ezingamashumi amane nanhlanu namakhulu ayisithupha namashumi amabili nanthathu"));
+      expect(
+          converter.convert(87654),
+          equals(
+              "izinkulungwane ezingamashumi ayisishiyagalombili nesikhombisa namakhulu ayisithupha namashumi amahlanu nane"));
       expect(converter.convert(100000), equals("izinkulungwane eziyikhulu"));
-      expect(converter.convert(101001),
-          equals("izinkulungwane eziyikhulu nanye nanye"));
       expect(
-        converter.convert(123456),
-        equals(
-          "izinkulungwane eziyikhulu namashumi amabili nanthathu namakhulu amane namashumi amahlanu nesithupha",
-        ),
-      );
+          converter.convert(123456),
+          equals(
+              "izinkulungwane eziyikhulu namashumi amabili nanthathu namakhulu amane namashumi amahlanu nesithupha"));
       expect(
-        converter.convert(999999),
-        equals(
-          "izinkulungwane ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye",
-        ),
-      );
+          converter.convert(987654),
+          equals(
+              "izinkulungwane ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalombili nesikhombisa namakhulu ayisithupha namashumi amahlanu nane"));
+      expect(
+          converter.convert(999999),
+          equals(
+              "izinkulungwane ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye"));
     });
 
     test('Negative Numbers', () {
@@ -86,177 +99,202 @@ void main() {
       expect(converter.convert(-123),
           equals("okubi ikhulu namashumi amabili nanthathu"));
       expect(
-        converter.convert(-1, options: ZuOptions(negativePrefix: "minus")),
-        equals("minus nye"),
-      );
-      expect(
-        converter.convert(-123, options: ZuOptions(negativePrefix: "minus")),
-        equals("minus ikhulu namashumi amabili nanthathu"),
-      );
-    });
+          converter.convert(-123.456),
+          equals(
+              "okubi ikhulu namashumi amabili nanthathu iphoyinti kane hlanu sithupha"));
 
-    test('Year Formatting', () {
-      const yearOption = ZuOptions(format: Format.year);
+      const negativeOption = ZuOptions(negativePrefix: "minus");
       expect(
-        converter.convert(1900, options: yearOption),
-        equals("inkulungwane namakhulu ayisishiyagalolunye"),
-      );
+          converter.convert(-1, options: negativeOption), equals("minus nye"));
+      expect(converter.convert(-123, options: negativeOption),
+          equals("minus ikhulu namashumi amabili nanthathu"));
       expect(
-        converter.convert(2024, options: yearOption),
-        equals("izinkulungwane ezimbili namashumi amabili nane"),
-      );
-      expect(
-        converter.convert(1900,
-            options: ZuOptions(format: Format.year, includeAD: true)),
-        equals("inkulungwane namakhulu ayisishiyagalolunye AD"),
-      );
-      expect(
-        converter.convert(2024,
-            options: ZuOptions(format: Format.year, includeAD: true)),
-        equals("izinkulungwane ezimbili namashumi amabili nane AD"),
-      );
-      expect(converter.convert(-100, options: yearOption), equals("ikhulu BC"));
-      expect(converter.convert(-1, options: yearOption), equals("nye BC"));
-      expect(
-        converter.convert(-2024,
-            options: ZuOptions(format: Format.year, includeAD: true)),
-        equals("izinkulungwane ezimbili namashumi amabili nane BC"),
-      );
-    });
-
-    test('Currency', () {
-      const currencyOptionZar = ZuOptions(currency: true);
-      expect(converter.convert(0, options: currencyOptionZar),
-          equals("zero amaRandi"));
-      expect(converter.convert(1, options: currencyOptionZar),
-          equals("iRandi elilodwa"));
-      expect(converter.convert(2, options: currencyOptionZar),
-          equals("amaRandi amabili"));
-      expect(
-        converter.convert(1.50, options: currencyOptionZar),
-        equals("iRandi elilodwa no amasenti angamashumi amahlanu"),
-      );
-      expect(
-        converter.convert(0.75, options: currencyOptionZar),
-        equals("amasenti angamashumi ayisikhombisa nanhlanu"),
-      );
-      expect(converter.convert(0.01, options: currencyOptionZar),
-          equals("isenti elisodwa"));
-      expect(
-        converter.convert(123.45, options: currencyOptionZar),
-        equals(
-          "amaRandi ayikhulu namashumi amabili nanthathu no amasenti angamashumi amane nanhlanu",
-        ),
-      );
-      expect(
-        converter.convert(123, options: currencyOptionZar),
-        equals("amaRandi ayikhulu namashumi amabili nanthathu"),
-      );
+          converter.convert(-123.456, options: negativeOption),
+          equals(
+              "minus ikhulu namashumi amabili nanthathu iphoyinti kane hlanu sithupha"));
     });
 
     test('Decimals', () {
       expect(
-        converter.convert(Decimal.parse('123.456')),
-        equals("ikhulu namashumi amabili nanthathu iphoyinti four five six"),
-      );
-      expect(converter.convert(Decimal.parse('0.5')),
-          equals("zero iphoyinti five"));
-      expect(converter.convert(Decimal.parse('1.50')),
-          equals("nye iphoyinti five"));
-      expect(converter.convert(123.0),
-          equals("ikhulu namashumi amabili nanthathu"));
+          converter.convert(123.456),
+          equals(
+              "ikhulu namashumi amabili nanthathu iphoyinti kane hlanu sithupha"));
+      expect(converter.convert(1.50), equals("nye iphoyinti hlanu"));
+      expect(converter.convert(1.05), equals("nye iphoyinti qanda hlanu"));
       expect(
-        converter.convert(Decimal.parse('123.0')),
-        equals("ikhulu namashumi amabili nanthathu"),
-      );
-      expect(
-        converter.convert(1.5,
-            options: const ZuOptions(decimalSeparator: DecimalSeparator.point)),
-        equals("nye iphoyinti five"),
-      );
-      expect(
-        converter.convert(1.5,
-            options:
-                const ZuOptions(decimalSeparator: DecimalSeparator.period)),
-        equals("nye iphoyinti five"),
-      );
-      expect(
-        converter.convert(1.5,
-            options: const ZuOptions(decimalSeparator: DecimalSeparator.comma)),
-        equals("nye ikhefu five"),
-      );
+          converter.convert(879.465),
+          equals(
+              "amakhulu ayisishiyagalombili namashumi ayisikhombisa nesishiyagalolunye iphoyinti kane sithupha hlanu"));
+      expect(converter.convert(1.5), equals("nye iphoyinti hlanu"));
+
+      const pointOption = ZuOptions(decimalSeparator: DecimalSeparator.point);
+      const commaOption = ZuOptions(decimalSeparator: DecimalSeparator.comma);
+      const periodOption = ZuOptions(decimalSeparator: DecimalSeparator.period);
+
+      expect(converter.convert(1.5, options: pointOption),
+          equals("nye iphoyinti hlanu"));
+      expect(converter.convert(1.5, options: commaOption),
+          equals("nye ukhefana hlanu"));
+      expect(converter.convert(1.5, options: periodOption),
+          equals("nye iphoyinti hlanu"));
     });
 
-    test('Handles infinity and invalid', () {
-      expect(converter.convert(double.infinity), equals("Infinity"));
-      expect(converter.convert(double.negativeInfinity),
-          equals("Negative Infinity"));
-      expect(converter.convert(double.nan), equals("Not a Number"));
-      expect(converter.convert(null), equals("Not a Number"));
-      expect(converter.convert('abc'), equals("Not a Number"));
-
+    test('Year Formatting', () {
+      const yearOption = ZuOptions(format: Format.year);
+      expect(converter.convert(123, options: yearOption),
+          equals("ikhulu namashumi amabili nanthathu"));
       expect(
-          converterWithFallback.convert(double.infinity), equals("Infinity"));
-      expect(converterWithFallback.convert(double.negativeInfinity),
-          equals("Negative Infinity"));
-      expect(converterWithFallback.convert(double.nan),
-          equals("Inani elingekho emthethweni"));
-      expect(converterWithFallback.convert(null),
-          equals("Inani elingekho emthethweni"));
-      expect(converterWithFallback.convert('abc'),
-          equals("Inani elingekho emthethweni"));
+          converter.convert(498, options: yearOption),
+          equals(
+              "amakhulu amane namashumi ayisishiyagalolunye nesishiyagalombili"));
+      expect(converter.convert(756, options: yearOption),
+          equals("amakhulu ayisikhombisa namashumi amahlanu nesithupha"));
+      expect(converter.convert(1900, options: yearOption),
+          equals("inkulungwane namakhulu ayisishiyagalolunye"));
+      expect(
+          converter.convert(1999, options: yearOption),
+          equals(
+              "inkulungwane namakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye"));
+      expect(converter.convert(2025, options: yearOption),
+          equals("izinkulungwane ezimbili namashumi amabili nanhlanu"));
+
+      const yearOptionAD = ZuOptions(format: Format.year, includeAD: true);
+      expect(converter.convert(1900, options: yearOptionAD),
+          equals("inkulungwane namakhulu ayisishiyagalolunye AD"));
+      expect(
+          converter.convert(1999, options: yearOptionAD),
+          equals(
+              "inkulungwane namakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye AD"));
+      expect(converter.convert(2025, options: yearOptionAD),
+          equals("izinkulungwane ezimbili namashumi amabili nanhlanu AD"));
+
+      expect(converter.convert(-1, options: yearOption), equals("nye BC"));
+      expect(converter.convert(-100, options: yearOption), equals("ikhulu BC"));
+      expect(
+          converter.convert(-100, options: yearOptionAD), equals("ikhulu BC"));
+      expect(converter.convert(-2025, options: yearOption),
+          equals("izinkulungwane ezimbili namashumi amabili nanhlanu BC"));
+      expect(converter.convert(-1000000, options: yearOption),
+          equals("isigidi esisodwa BC"));
+    });
+
+    test('Currency', () {
+      const currencyOption = ZuOptions(currency: true);
+      expect(converter.convert(0, options: currencyOption),
+          equals("qanda amaRandi"));
+      expect(converter.convert(1, options: currencyOption),
+          equals("iRandi elilodwa"));
+      expect(converter.convert(2, options: currencyOption),
+          equals("amaRandi amabili"));
+      expect(converter.convert(5, options: currencyOption),
+          equals("amaRandi amahlanu"));
+      expect(converter.convert(10, options: currencyOption),
+          equals("amaRandi ayishumi"));
+      expect(converter.convert(11, options: currencyOption),
+          equals("amaRandi ayishumi nanye"));
+      expect(converter.convert(1.50, options: currencyOption),
+          equals("iRandi elilodwa no amasenti angamashumi amahlanu"));
+      expect(
+          converter.convert(123.45, options: currencyOption),
+          equals(
+              "amaRandi ayikhulu namashumi amabili nanthathu no amasenti angamashumi amane nanhlanu"));
+      expect(converter.convert(10000000, options: currencyOption),
+          equals("izigidi eziyishumi amaRandi"));
+      expect(converter.convert(0.5, options: currencyOption),
+          equals("amasenti angamashumi amahlanu"));
+      expect(converter.convert(0.01, options: currencyOption),
+          equals("isenti elilodwa"));
+      expect(converter.convert(0.02, options: currencyOption),
+          equals("amasenti amabili"));
+      expect(converter.convert(0.05, options: currencyOption),
+          equals("amasenti amahlanu"));
+      expect(converter.convert(0.10, options: currencyOption),
+          equals("amasenti ayishumi"));
+      expect(converter.convert(0.11, options: currencyOption),
+          equals("amasenti ayishumi nanye"));
+      expect(converter.convert(1.01, options: currencyOption),
+          equals("iRandi elilodwa no isenti elilodwa"));
+      expect(converter.convert(2.02, options: currencyOption),
+          equals("amaRandi amabili no amasenti amabili"));
+      expect(converter.convert(5.05, options: currencyOption),
+          equals("amaRandi amahlanu no amasenti amahlanu"));
     });
 
     test('Scale Numbers', () {
+      expect(converter.convert(BigInt.from(10).pow(6)),
+          equals("isigidi esisodwa"));
+      expect(converter.convert(BigInt.from(2) * BigInt.from(10).pow(9)),
+          equals("amabhiliyoni amabili"));
+      expect(converter.convert(BigInt.from(3) * BigInt.from(10).pow(12)),
+          equals("amathriliyoni amathathu"));
+      expect(converter.convert(BigInt.from(4) * BigInt.from(10).pow(15)),
+          equals("amakhwadriliyoni amane"));
+      expect(converter.convert(BigInt.from(5) * BigInt.from(10).pow(18)),
+          equals("amakhwintiliyoni amahlanu"));
+      expect(converter.convert(BigInt.from(6) * BigInt.from(10).pow(21)),
+          equals("amasekstiliyoni ayisithupha"));
+      expect(converter.convert(BigInt.from(7) * BigInt.from(10).pow(24)),
+          equals("amaseptiliyoni ayisikhombisa"));
+      expect(converter.convert(BigInt.parse('1000002000003')),
+          equals('ithriliyoni elilodwa nezigidi ezimbili nanthathu'));
+      expect(converter.convert(BigInt.parse('5001000')),
+          equals('izigidi ezinhlanu nenkulungwane'));
+      expect(converter.convert(BigInt.parse('1000000001')),
+          equals('ibhiliyoni elilodwa nanye'));
+      expect(converter.convert(BigInt.parse('1001000000')),
+          equals('ibhiliyoni elilodwa nesigidi esisodwa'));
+      expect(converter.convert(BigInt.parse('2001000')),
+          equals('izigidi ezimbili nenkulungwane'));
       expect(
-          converter.convert(BigInt.from(1000000)), equals("isigidi esisodwa"));
+          converter.convert(BigInt.parse('1000987600003')),
+          equals(
+              'ithriliyoni elilodwa nezigidi ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalombili nesikhombisa nezinkulungwane ezingamakhulu ayisithupha nanthathu'));
       expect(
-          converter.convert(BigInt.from(2000000)), equals("izigidi ezimbili"));
-      expect(converter.convert(BigInt.from(1001000)),
-          equals("isigidi esisodwa nenkulungwane"));
-      expect(converter.convert(BigInt.from(1000000000)),
-          equals("ibhiliyoni elilodwa"));
-      expect(converter.convert(BigInt.from(3000000000)),
-          equals("amabhiliyoni amathathu"));
-      expect(converter.convert(BigInt.from(1000000000000)),
-          equals("ithriliyoni elilodwa"));
-      expect(converter.convert(BigInt.from(4000000000000)),
-          equals("amathriliyoni amane"));
-
-      expect(
-        converter.convert(BigInt.parse('1001001001')),
-        equals("ibhiliyoni elilodwa nesigidi esisodwa nenkulungwane nanye"),
+        converter.convert(BigInt.parse('9876543210123456789')),
+        equals(
+            "amakhwintiliyoni ayisishiyagalolunye namakhwadriliyoni angamakhulu ayisishiyagalombili namashumi ayisikhombisa nesithupha namathriliyoni angamakhulu amahlanu namashumi amane nanthathu namabhiliyoni angamakhulu amabili nelishumi nezigidi eziyikhulu namashumi amabili nanthathu nezinkulungwane ezingamakhulu amane namashumi amahlanu nesithupha namakhulu ayisikhombisa namashumi ayisishiyagalombili nesishiyagalolunye"),
       );
-      expect(
-        converter.convert(BigInt.parse('2003000004')),
-        equals("amabhiliyoni amabili nezigidi ezintathu nane"),
-      );
-      expect(
-        converter.convert(BigInt.parse('1000000000000000')),
-        equals("ikhwadriliyoni elilodwa"),
-      );
-      expect(
-        converter.convert(BigInt.parse('2000000000000000000')),
-        equals("amakhwintiliyoni amabili"),
-      );
-      expect(
-        converter.convert(BigInt.parse('1000000000000000000000')),
-        equals("isekstiliyoni esisodwa"),
-      );
-
       expect(
         converter.convert(BigInt.parse('123456789123456789123456')),
         equals(
-          "amasekstiliyoni ayikhulu namashumi amabili nanthathu namakhwintiliyoni angamakhulu amane namashumi amahlanu nesithupha namakhwadriliyoni angamakhulu ayisikhombisa namashumi ayisishiyagalombili nesishiyagalolunye namathriliyoni ayikhulu namashumi amabili nanthathu namabhiliyoni angamakhulu amane namashumi amahlanu nesithupha nezigidi ezingamakhulu ayisikhombisa namashumi ayisishiyagalombili nesishiyagalolunye nezinkulungwane eziyikhulu namashumi amabili nanthathu namakhulu amane namashumi amahlanu nesithupha",
-        ),
+            "amasekstiliyoni ayikhulu namashumi amabili nanthathu namakhwintiliyoni angamakhulu amane namashumi amahlanu nesithupha namakhwadriliyoni angamakhulu ayisikhombisa namashumi ayisishiyagalombili nesishiyagalolunye namathriliyoni ayikhulu namashumi amabili nanthathu namabhiliyoni angamakhulu amane namashumi amahlanu nesithupha nezigidi ezingamakhulu ayisikhombisa namashumi ayisishiyagalombili nesishiyagalolunye nezinkulungwane eziyikhulu namashumi amabili nanthathu namakhulu amane namashumi amahlanu nesithupha"),
       );
-
       expect(
         converter.convert(BigInt.parse('999999999999999999999999')),
         equals(
-          "amasekstiliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhwintiliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhwadriliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namathriliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namabhiliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye nezigidi ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye nezinkulungwane ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye",
-        ),
+            "amasekstiliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhwintiliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhwadriliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namathriliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namabhiliyoni angamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye nezigidi ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye nezinkulungwane ezingamakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye namakhulu ayisishiyagalolunye namashumi ayisishiyagalolunye nesishiyagalolunye"),
       );
+    });
+
+    test('Infinity And Invalid Input', () {
+      expect(converter.convert(double.nan), equals("Akulona Inani"));
+      expect(converter.convert(double.infinity), equals("Okungapheli"));
+      expect(converter.convert(double.negativeInfinity),
+          equals("Okubi Okungapheli"));
+      expect(converter.convert(null), equals("Akulona Inani"));
+      expect(converter.convert('abc'), equals("Akulona Inani"));
+      expect(converter.convert([]), equals("Akulona Inani"));
+      expect(converter.convert({}), equals("Akulona Inani"));
+      expect(converter.convert(Object()), equals("Akulona Inani"));
+
+      expect(converterWithFallback.convert(double.nan),
+          equals("Inani Elingekho Emthethweni"));
+      expect(converterWithFallback.convert(double.infinity),
+          equals("Okungapheli"));
+      expect(converterWithFallback.convert(double.negativeInfinity),
+          equals("Okubi Okungapheli"));
+      expect(converterWithFallback.convert(null),
+          equals("Inani Elingekho Emthethweni"));
+      expect(converterWithFallback.convert('abc'),
+          equals("Inani Elingekho Emthethweni"));
+      expect(converterWithFallback.convert([]),
+          equals("Inani Elingekho Emthethweni"));
+      expect(converterWithFallback.convert({}),
+          equals("Inani Elingekho Emthethweni"));
+      expect(converterWithFallback.convert(Object()),
+          equals("Inani Elingekho Emthethweni"));
+      expect(converterWithFallback.convert(123),
+          equals("ikhulu namashumi amabili nanthathu"));
     });
   });
 }

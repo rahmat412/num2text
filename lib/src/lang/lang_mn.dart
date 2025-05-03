@@ -1,56 +1,46 @@
 import 'package:decimal/decimal.dart';
 
-import '../concurencies/concurencies_info.dart'; // Defines currency structures.
-import '../num2text_base.dart'; // Base class contract.
-import '../options/base_options.dart'; // Base options and enums like Format, DecimalSeparator.
-import '../options/mn_options.dart'; // Mongolian-specific options.
-import '../utils/utils.dart'; // Utilities like number normalization.
+import '../concurencies/concurencies_info.dart';
+import '../num2text_base.dart';
+import '../options/base_options.dart';
+import '../options/mn_options.dart';
+import '../utils/utils.dart';
 
 /// {@template num2text_mn}
-/// The Mongolian language (`Lang.MN`) implementation for converting numbers to words (using Cyrillic script).
+/// Converts numbers to Mongolian words (`Lang.MN`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Mongolian word representation following standard Mongolian grammar and vocabulary.
+/// Implements [Num2TextBase] for the Mongolian language, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, and years.
 ///
-/// Capabilities include handling cardinal numbers, currency (using [MnOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers using the
-/// short scale system (сая, тэрбум, их наяд, etc.). It handles vowel harmony implicitly through the defined word forms
-/// and applies appropriate word forms based on whether a number word precedes another significant word (scale, unit, etc.).
-/// Invalid inputs result in a fallback message.
+/// Key Mongolian Features Handled (based on implementation):
+/// - **Vowel Harmony Suffixes:** Implicitly handled by using pre-defined word forms.
+/// - **Contextual Number Forms:** Uses different forms of numbers (units, tens, hundreds) depending on whether they stand alone or precede another number/scale word (e.g., "гурван" vs "гурав", "зуун" vs "зуу").
+/// - **Scale Words:** Uses standard Mongolian scale words (мянга, сая, тэрбум, etc.).
+/// - **Special Cases:** Handles forms like "арван нэг"/"арван нэгэн".
+/// - **Currency:** Formats currency values.
+/// - **Years:** Formats years, optionally adding "НТӨ" (BC) or "НТ" (AD).
 ///
-/// Behavior can be customized using [MnOptions].
+/// Customizable via [MnOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextMN implements Num2TextBase {
   // --- Constants ---
 
-  /// The word for the decimal separator when using a period (`.`) ("цэг" - tseg).
-  static const String _decimalPointWord = "цэг";
+  // General & Special Values
+  static const String _decimalPointWord = "цэг"; // "tseg" - decimal point
+  static const String _decimalCommaWord = "таслал"; // "taslal" - decimal comma
+  static const String _zero = "тэг"; // "teg" - zero
+  static const String _infinity = "Хязгааргүй"; // "Khyazgaargüi" - Infinity
+  static const String _negativeInfinity =
+      "Сөрөг Хязгааргүй"; // "Sörög Khyazgaargüi" - Negative Infinity
+  static const String _notANumber = "Тоо Биш"; // "Too Bish" - Not a Number
+  static const String _yearSuffixBC =
+      "НТӨ"; // "NTÖ" - Naiman Tugarig Orosgol (Before Common Era / BC)
+  static const String _yearSuffixAD =
+      "НТ"; // "NT" - Naiman Tugarig (Common Era / AD)
 
-  /// The word for the decimal separator when using a comma (`,`) ("таслал" - taslal).
-  static const String _decimalCommaWord = "таслал";
-
-  /// The word for zero ("тэг").
-  static const String _zero = "тэг";
-
-  /// The word for positive infinity ("Хязгааргүй" - Khyazgaargüi).
-  static const String _infinity = "Хязгааргүй";
-
-  /// The word for negative infinity ("Сөрөг хязгааргүй" - Sörög khyazgaargüi).
-  static const String _negativeInfinity = "Сөрөг хязгааргүй";
-
-  /// Default error message for invalid number input ("Тоо биш" - Too bish).
-  static const String _notANumber = "Тоо биш";
-
-  /// The suffix for negative years ("Нийтийн Тооллын Өмнөх" - Before Common Era).
-  static const String _yearSuffixBC = "НТӨ";
-
-  /// The suffix for positive years ("Нийтийн Тоолол" - Common Era). Added only if [MnOptions.includeAD] is true.
-  static const String _yearSuffixAD = "НТ";
-
-  /// Base forms for units 1-9.
+  // Units (1-9) - Standalone/Base form
   static const List<String> _units = [
-    "", // 0 - Not used directly
+    "", // 0 - Index placeholder
     "нэг", // 1 - neg
     "хоёр", // 2 - khoyor
     "гурав", // 3 - gurav
@@ -62,9 +52,8 @@ class Num2TextMN implements Num2TextBase {
     "ес", // 9 - yes
   ];
 
-  /// Modified forms for units 3-9, used when followed by a word starting with a consonant
-  /// or when preceding certain grammatical contexts (like scale words, "зуун").
-  /// Typically involves adding a final 'н'.
+  // Units (3-9) - Modified/Combined form (used before tens, hundreds, scales)
+  // Ends with 'н' consonant sound.
   static const Map<int, String> _unitsModified = {
     3: "гурван", // gurvan
     4: "дөрвөн", // dörvön
@@ -75,7 +64,7 @@ class Num2TextMN implements Num2TextBase {
     9: "есөн", // yesön
   };
 
-  /// Word forms for teens 10-19.
+  // Teens (10-19) - Standalone form
   static const List<String> _teens = [
     "арав", // 10 - arav
     "арван нэг", // 11 - arvan neg
@@ -89,8 +78,13 @@ class Num2TextMN implements Num2TextBase {
     "арван ес", // 19 - arvan yes
   ];
 
-  /// Standalone forms for tens 10-90 (used when they are the final part of a chunk).
-  /// Index corresponds to the tens digit (index 1 = 10, index 9 = 90).
+  // Tens (10) - Combined form (used before units or scales potentially)
+  static const String _tenCombined = "арван"; // arvan
+
+  // Eleven (11) - Combined/Modified form (used when followed by context like currency/year suffix)
+  static const String _elevenCombined = "арван нэгэн"; // arvan negen
+
+  // Tens (10-90) - Standalone form (used when the number ends exactly on the ten)
   static const List<String> _tensStandalone = [
     "", // 0
     "арав", // 10 - arav
@@ -104,11 +98,10 @@ class Num2TextMN implements Num2TextBase {
     "ер", // 90 - yer
   ];
 
-  /// Combined forms for tens 10-90 (used when followed by a unit digit 1-9).
-  /// Index corresponds to the tens digit.
+  // Tens (10-90) - Combined form (used when followed by a unit 1-9)
   static const List<String> _tensCombined = [
     "", // 0
-    "арван", // 10 - arvan (used in teens)
+    "арван", // 10 - arvan (same as _tenCombined)
     "хорин", // 20 - khorin
     "гучин", // 30 - guchin
     "дөчин", // 40 - döchin
@@ -119,202 +112,505 @@ class Num2TextMN implements Num2TextBase {
     "ерэн", // 90 - yeren
   ];
 
-  /// Standalone word for hundred ("зуу"), used when it's the exact value or the end of a number.
+  // Hundred (100) - Standalone form
   static const String _hundredStandalone = "зуу"; // zuu
 
-  /// Combined word for hundred ("зуун"), used when followed by tens/units or another context.
+  // Hundred (100) - Combined form (used when followed by tens/units)
   static const String _hundredCombined = "зуун"; // zuun
 
-  /// Scale words (thousand, million, etc.) using the short scale system.
-  /// Key: Scale level (1=10^3, 2=10^6, 3=10^9...).
-  /// Value: Scale word name.
+  // Scale words (Short scale mapping - Мянга, Сая, Тэрбум...)
+  // Index represents power of 1000 (1 = 10^3, 2 = 10^6, etc.)
   static const Map<int, String> _scaleWords = {
-    1: "мянга", // myanga (thousand, 10^3)
-    2: "сая", // saya (million, 10^6)
-    3: "тэрбум", // terbum (billion, 10^9)
-    4: "их наяд", // ikh nayad (trillion, 10^12)
-    5: "квадриллион", // quadrillion (10^15 - loanword)
-    6: "квинтиллион", // quintillion (10^18 - loanword)
-    7: "секстиллион", // sextillion (10^21 - loanword)
-    8: "септиллион", // septillion (10^24 - loanword)
-    // Add more if needed
+    1: "мянга", // myanga (thousand)
+    2: "сая", // saya (million)
+    3: "тэрбум", // terbum (billion)
+    4: "их наяд", // ikh nayad (trillion) - Lit. "great myriad"
+    5: "квадриллион", // quadrillion (loanword)
+    6: "квинтиллион", // quintillion (loanword)
+    7: "секстиллион", // sextillion (loanword)
+    8: "септиллион", // septillion (loanword)
+    // Higher scales could be added if needed
   };
 
-  /// Helper function to get the correct unit word (1-9), applying modification if needed.
-  /// Modification (adding 'н') applies when the unit is followed by context (scale word, "зуун", etc.).
+  /// Processes the given [number] into Mongolian words.
   ///
-  /// [digit]: The unit digit (1-9).
-  /// [needsModification]: True if the context requires the modified form (e.g., "гурван зуун").
-  /// Returns the appropriate Mongolian word for the unit digit.
-  String _getUnitWord(int digit, {required bool needsModification}) {
-    if (digit < 1 || digit > 9) return ""; // Handle invalid digits gracefully.
-
-    // Only digits 3-9 have distinct modified forms.
-    bool canBeModified = digit >= 3;
-    // Return modified form if needed and possible, otherwise return base form.
-    return (needsModification && canBeModified)
-        ? (_unitsModified[digit] ??
-            _units[
-                digit]) // Use modified, fallback to base if somehow not in map.
-        : _units[digit]; // Use base form.
-  }
-
-  /// {@macro num2text_base_process}
-  /// Converts the given [number] into its Mongolian word representation.
+  /// {@template num2text_process_intro}
+  /// Normalizes input (`int`, `double`, `BigInt`, `Decimal`, `String`) to [Decimal].
+  /// {@endtemplate}
   ///
-  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String` inputs.
-  /// Uses [MnOptions] to customize behavior like currency formatting ([MnOptions.currency], [MnOptions.currencyInfo]),
-  /// year formatting ([Format.year]), decimal separator ([MnOptions.decimalSeparator]),
-  /// and negative prefix ([MnOptions.negativePrefix]).
-  /// If `options` is not an instance of [MnOptions], default settings are used.
+  /// {@template num2text_process_options}
+  /// Uses [MnOptions] for customization (currency, year format, AD/BC inclusion, negative prefix, decimal separator).
+  /// Defaults apply if [options] is null or not [MnOptions].
+  /// {@endtemplate}
   ///
-  /// Returns the word representation (e.g., "нэг зуун хорин гурав", "хасах арав цэг тав", "нэг сая").
-  /// If the input is invalid (`null`, `NaN`, `Infinity`, non-numeric string), it returns
-  /// [fallbackOnError] if provided, otherwise a default error message like "Тоо биш".
+  /// {@template num2text_process_errors}
+  /// Handles `Infinity` ("Хязгааргүй"), `NaN`. Returns [fallbackOnError] or "Тоо Биш" on failure.
+  /// {@endtemplate}
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [MnOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Mongolian words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Mongolian-specific options, using defaults if none are provided.
+    // Ensure correct options type or use defaults
     final MnOptions mnOptions =
         options is MnOptions ? options : const MnOptions();
-    // Use the provided fallback or the default Mongolian error message.
+    // Determine the error message to use on failure
     final String errorDefault = fallbackOnError ?? _notANumber;
+    // Get currency info from options
+    final CurrencyInfo currencyInfo = mnOptions.currencyInfo;
 
-    // Handle special non-finite double values early.
+    // Handle special double values immediately
     if (number is double) {
       if (number.isInfinite) {
-        return number.isNegative
-            ? _negativeInfinity
-            : _infinity; // Localized infinity
+        return number.isNegative ? _negativeInfinity : _infinity;
       }
       if (number.isNaN) return errorDefault;
     }
 
-    // Normalize the input to a Decimal for precise calculations.
+    // Normalize the input number to Decimal for consistent handling
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null)
+      return errorDefault; // Return error if normalization fails
 
-    // Return error if normalization failed (invalid input type or format).
-    if (decimalValue == null) return errorDefault;
+    // Determine sign and get absolute value
+    final bool isNegative = decimalValue.isNegative;
+    final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
-    // Handle the specific case of zero.
-    if (decimalValue == Decimal.zero) {
+    // Handle the specific case of zero
+    if (absValue == Decimal.zero) {
       if (mnOptions.currency) {
-        // Currency format for zero (e.g., "тэг төгрөг"). Use singular/base unit name.
-        final currencyName = mnOptions.currencyInfo.mainUnitPlural ??
-            mnOptions.currencyInfo.mainUnitSingular;
+        // For currency, use plural unit name (e.g., "тэг төгрөг")
+        final currencyName =
+            currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+
+        // *** Original logic check for 0.XX currency ***
+        // Check if the original decimal had fractional digits and subunits are defined.
+        // This block attempts to handle cases like 0.50 MNT -> "тавин мөнгө"
+        // It recalculates subunit value and calls _handleCurrency if subunits exist.
+        // Note: This check might be redundant if _handleCurrency handles zero main value correctly.
+        if (decimalValue.scale > 0 && currencyInfo.subUnitSingular != null) {
+          final Decimal fractionalPart = decimalValue - decimalValue.truncate();
+          // Assuming 100 subunits per main unit for rounding/truncation
+          final BigInt subunitValue = (fractionalPart * Decimal.fromInt(100))
+              .round(scale: 0)
+              .toBigInt();
+          if (subunitValue > BigInt.zero) {
+            // If non-zero subunits exist, delegate to the main currency handler
+            return _handleCurrency(absValue, mnOptions);
+          }
+        }
+        // Otherwise, return zero main units
         return "$_zero $currencyName";
+      } else {
+        // For non-currency, just return "тэг"
+        return _zero;
       }
-      // Standard "тэг". Also covers year 0.
-      return _zero;
     }
 
-    final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic.
-    final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-    String resultText;
+    // --- Determine Context for Number Form Modification ---
+    // Determines if the last word of the number needs the modified form (e.g., "гурван" instead of "гурав").
+    // This happens if the number is followed by a currency unit, year suffix (AD/BC), or decimal part.
+    String resultText; // Holds the final text result
+    bool externalContextFollows =
+        false; // Flag: Does context follow the number?
+    bool isYearBC = false; // Flag: Is this a BC year?
 
-    // --- Dispatch based on format options ---
     if (mnOptions.format == Format.year) {
-      // Year format needs the integer part.
-      int yearInt = absValue.truncate().toBigInt().toInt();
-      // Years are read as cardinal numbers, context does not follow.
-      resultText = _convertInteger(BigInt.from(yearInt), contextFollows: false);
+      // Check original sign for BC/AD determination
+      bool originalIsNegative = number is int
+          ? number < 0
+          : (number is Decimal ? number.isNegative : decimalValue.isNegative);
+      isYearBC = originalIsNegative;
+      // Context follows if it's BC or if AD suffix is requested
+      externalContextFollows = isYearBC || mnOptions.includeAD;
     } else if (mnOptions.currency) {
-      // Handle currency format.
+      // Currency units always provide following context
+      externalContextFollows = true;
+    } else {
+      // For standard numbers, check if there's a non-zero fractional part
+      final Decimal fractionalPart = absValue - absValue.truncate();
+      if (fractionalPart > Decimal.zero) {
+        // More robust check: ensure fractional digits exist after trimming zeros
+        String fractionalDigits = absValue.toString().split('.').last;
+        if (fractionalDigits.replaceAll(RegExp(r'0+$'), '').isNotEmpty) {
+          externalContextFollows = true; // Decimal part provides context
+        }
+      }
+    }
+
+    // --- Convert Based on Type ---
+    if (mnOptions.format == Format.year) {
+      // Convert year integer part, passing the context flag
+      BigInt yearInt = absValue.truncate().toBigInt();
+      resultText =
+          _convertInteger(yearInt, hasFollowingContext: externalContextFollows);
+    } else if (mnOptions.currency) {
+      // Handle currency formatting
       resultText = _handleCurrency(absValue, mnOptions);
     } else {
-      // Handle standard number format.
-      resultText = _handleStandardNumber(absValue, mnOptions);
+      // Handle standard number (integer + potential decimal)
+      resultText =
+          _handleStandardNumber(absValue, mnOptions, externalContextFollows);
     }
 
-    // --- Add prefixes/suffixes ---
+    // --- Add Suffixes / Prefixes ---
     if (mnOptions.format == Format.year) {
-      // Check original sign for year suffix.
-      bool originalIsNegative =
-          number is int ? number < 0 : decimalValue.isNegative;
-      if (originalIsNegative) {
-        resultText += " $_yearSuffixBC"; // Add BC suffix.
+      // Add BC/AD suffixes to the year text
+      if (isYearBC) {
+        // Special case: "нэг" (1) becomes "нэгэн" before BC suffix
+        if (resultText == "нэг") {
+          resultText = "нэгэн";
+        }
+        resultText += " $_yearSuffixBC";
       } else if (mnOptions.includeAD) {
-        resultText += " $_yearSuffixAD"; // Add AD suffix if requested.
+        // Re-convert with context=true to ensure correct form before AD suffix
+        BigInt yearInt = absValue.truncate().toBigInt();
+        resultText = _convertInteger(yearInt, hasFollowingContext: true);
+        resultText += " $_yearSuffixAD";
       }
+      // No negative prefix for years (handled by BC/AD)
     } else if (isNegative) {
-      // Add negative prefix for non-year formats.
-      resultText = "${mnOptions.negativePrefix} $resultText";
+      // Add negative prefix for non-year numbers
+      resultText =
+          "${mnOptions.negativePrefix} $resultText"; // Default "хасах" (khasakh)
     }
 
-    return resultText.trim(); // Trim final result.
+    // Return the final trimmed result
+    return resultText.trim();
   }
 
-  /// Formats a [Decimal] value as a currency amount in words.
-  /// Handles main units and subunits based on [MnOptions.currencyInfo].
-  /// Applies rounding if [MnOptions.round] is true.
-  /// Mongolian currency typically doesn't use complex plurals; singular form is used.
-  /// Number words might change form based on following the unit name (`contextFollows: true`).
+  /// Helper to get the correct unit word (1-9) based on context.
   ///
-  /// [absValue]: The non-negative currency amount.
-  /// [options]: Mongolian options containing currency details and rounding preference.
-  /// Returns the currency amount in words, e.g., "нэг зуун төгрөг", "тавин мөнгө".
+  /// @param digit The unit digit (1-9).
+  /// @param needsModification If true, returns the modified form (e.g., "гурван") used before other words.
+  ///                        If false, returns the standalone form (e.g., "гурав").
+  /// @return The appropriate Mongolian word for the unit digit, or empty string if invalid.
+  String _getUnitWord(int digit, {required bool needsModification}) {
+    if (digit < 1 || digit > 9) return ""; // Handle invalid digits
+    // 1 and 2 don't have distinct modified forms in this implementation's lists
+    if (digit == 1 || digit == 2) return _units[digit];
+    // Check if the digit has a modified form (3-9)
+    bool canBeModified = digit >= 3;
+    // Return modified form if needed and possible, otherwise return standard form
+    return (needsModification && canBeModified)
+        ? (_unitsModified[digit] ??
+            _units[digit]) // Use modified if exists, fallback just in case
+        : _units[digit]; // Use standard form
+  }
+
+  /// Converts a non-negative integer ([BigInt]) into Mongolian words.
+  ///
+  /// Handles chunking by thousands and applying scale words. Determines if the
+  /// final unit word needs modification based on `hasFollowingContext`.
+  ///
+  /// @param n The non-negative integer to convert.
+  /// @param hasFollowingContext If true, the number is followed by other words (currency, year suffix, decimal),
+  ///                            requiring the modified form for the final unit/ten/hundred.
+  /// @return The integer as Mongolian words.
+  String _convertInteger(BigInt n, {required bool hasFollowingContext}) {
+    if (n < BigInt.zero)
+      throw ArgumentError("Integer must be non-negative: $n");
+    if (n == BigInt.zero) return _zero; // Base case: 0
+
+    // Delegate numbers 0-999 to _convertChunk
+    if (n < BigInt.from(1000)) {
+      // Pass context flag to handle final word modification
+      return _convertChunk(n.toInt(),
+          needsFinalUnitModification: hasFollowingContext);
+    }
+
+    // --- Chunking Logic for numbers >= 1000 ---
+    List<String> parts =
+        []; // Holds text for each scale part (e.g., "хоёр мянга", "таван зуун жаран нэг")
+    final BigInt oneThousand = BigInt.from(1000);
+    int scaleLevel = 0; // 0=units, 1=thousands, 2=millions...
+    BigInt remaining = n; // Value remaining to be processed
+
+    while (remaining > BigInt.zero) {
+      int chunkInt =
+          (remaining % oneThousand).toInt(); // Current chunk value (0-999)
+      BigInt higherRemaining =
+          remaining ~/ oneThousand; // Remaining part for higher scales
+      bool isLowestChunk =
+          (scaleLevel == 0); // Is this the units/hundreds/tens chunk?
+      bool chunkWillHaveScaleWord = (scaleLevel >
+          0); // Will a scale word ("мянга", "сая") follow this chunk?
+
+      if (chunkInt > 0) {
+        // Only process non-zero chunks
+        // --- Determine Modification Context for the Chunk ---
+        // Does the last unit/ten/hundred within *this chunk* need modification?
+        // 1. Yes, if a scale word follows this chunk (e.g., "гурван" in "гурван мянга").
+        bool modifyChunkUnitsForScale = chunkWillHaveScaleWord;
+        // 2. Yes, if this is the lowest chunk (units) AND there's external context following the whole number.
+        bool modifyChunkUnitsForExternal = hasFollowingContext && isLowestChunk;
+        // Final decision: modification is needed if either condition is true.
+        bool needsFinalUnitModification =
+            modifyChunkUnitsForScale || modifyChunkUnitsForExternal;
+
+        // Convert the 0-999 chunk value using the determined context
+        String chunkText = _convertChunk(chunkInt,
+            needsFinalUnitModification: needsFinalUnitModification);
+
+        // --- Add Scale Word (if applicable) ---
+        String? scaleWord =
+            _scaleWords[scaleLevel]; // Get scale word (e.g., "мянга", "сая")
+        if (scaleWord != null && scaleLevel > 0) {
+          // If a scale word exists, append it to the chunk text
+          if (chunkText.isNotEmpty) {
+            // Should always be true if chunkInt > 0
+            parts.add("$chunkText $scaleWord"); // e.g., "гурван мянга"
+          }
+          // If chunkText was somehow empty (shouldn't happen), scale word is skipped
+        } else if (scaleLevel == 0) {
+          // If it's the units chunk (scale 0), just add the chunk text
+          parts.add(chunkText);
+        }
+        // Scales beyond _scaleWords map are currently ignored silently.
+      }
+      // Move to the next higher scale
+      remaining = higherRemaining;
+      scaleLevel++;
+    }
+
+    // Combine parts from highest scale down, ensuring non-empty parts and single spaces
+    return parts.reversed.where((part) => part.isNotEmpty).join(' ');
+  }
+
+  /// Converts an integer between 0 and 999 into Mongolian words.
+  ///
+  /// Handles hundreds, tens, and units, applying contextual modifications
+  /// based on `needsFinalUnitModification`.
+  ///
+  /// @param n The integer chunk (0-999).
+  /// @param needsFinalUnitModification If true, the last word component (unit, ten, or hundred)
+  ///                                   should use its modified/combined form.
+  /// @return The chunk as Mongolian words, or empty string if n is 0.
+  String _convertChunk(int n, {required bool needsFinalUnitModification}) {
+    if (n == 0) return ""; // Base case
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
+
+    List<String> words =
+        []; // Holds word parts ("таван", "зуун", "жаран", "нэг")
+    int remainder = n; // Remaining value to process
+    bool processedUnitsOrTens = false; // Flag if tens or units part was handled
+
+    // Determine if the number has a non-zero part in the 1-99 range
+    bool hasUnitsAndTens = (remainder % 100) > 0;
+
+    // --- Process Hundreds ---
+    if (remainder >= 100) {
+      int hundredDigit = remainder ~/ 100; // Hundreds digit (1-9)
+      // Get the unit word for the hundred digit (needs modification, e.g., "гурван")
+      String hundredPrefix =
+          _getUnitWord(hundredDigit, needsModification: true);
+      // Choose hundred word form: "зуун" (combined) if tens/units follow, "зуу" (standalone) otherwise
+      String hundredWord =
+          hasUnitsAndTens ? _hundredCombined : _hundredStandalone;
+      words.add(
+          "$hundredPrefix $hundredWord"); // e.g., "гурван зуун" or "гурван зуу"
+      remainder %= 100; // Get remaining tens/units (0-99)
+    }
+
+    // --- Process Tens and Units ---
+    if (remainder > 0) {
+      // Process if remainder is 1-99
+      processedUnitsOrTens = true; // Mark that this part was processed
+      bool hasUnitDigit =
+          (remainder % 10) > 0; // Does it have a non-zero unit digit?
+      // Determine if the *unit digit* itself needs modification (only if it's the very last part of the whole number)
+      bool modifyThisUnit = needsFinalUnitModification;
+
+      if (remainder < 10) {
+        // Units 1-9: Get the unit word, applying final modification if needed
+        String unitWord =
+            _getUnitWord(remainder, needsModification: modifyThisUnit);
+        words.add(unitWord);
+      } else if (remainder == 11) {
+        // Special case for 11: Use combined "арван нэгэн" if final modification needed
+        words.add(modifyThisUnit
+            ? _elevenCombined
+            : _teens[1]); // _teens[1] is "арван нэг"
+      } else if (remainder < 20) {
+        // Teens 10, 12-19
+        if (remainder == 10) {
+          // Special case for 10: Use combined "арван" if final modification needed
+          words.add(
+              modifyThisUnit ? _tenCombined : _teens[0]); // _teens[0] is "арав"
+        } else {
+          // Other teens (12-19) don't seem to have modified forms in this logic
+          words.add(_teens[remainder - 10]); // Index is value - 10
+        }
+      } else {
+        // Tens 20-99
+        int tenDigit = remainder ~/ 10; // Tens digit (2-9)
+        // Choose tens word form: Combined (e.g., "хорин") if units follow, Standalone (e.g., "хорь") otherwise
+        String tenWord =
+            hasUnitDigit ? _tensCombined[tenDigit] : _tensStandalone[tenDigit];
+        words.add(tenWord);
+
+        if (hasUnitDigit) {
+          // If there's a unit digit (1-9)
+          int unitDigit = remainder % 10;
+          // Get the unit word, applying final modification if it's the end of the whole number
+          String unitWord =
+              _getUnitWord(unitDigit, needsModification: modifyThisUnit);
+          words.add(unitWord); // Add the unit word
+        } else {
+          // If it ends exactly on a ten (20, 30...) but needs final modification
+          // Replace standalone ten (e.g., "хорь") with combined form (e.g., "хорин")
+          if (modifyThisUnit) {
+            words.removeLast(); // Remove the standalone ten added earlier
+            words.add(_tensCombined[tenDigit]); // Add the combined ten form
+          }
+        }
+      }
+    }
+
+    // --- Final Modification Check for Hundreds ---
+    // If only hundreds were processed (no tens/units) AND final modification is needed
+    if (!processedUnitsOrTens &&
+        needsFinalUnitModification &&
+        words.isNotEmpty) {
+      // Check if the last word added was a standalone hundred ("зуу")
+      if (words.last.endsWith(_hundredStandalone)) {
+        // Replace standalone "зуу" with combined "зуун"
+        words.last =
+            words.last.replaceFirst(_hundredStandalone, _hundredCombined);
+      }
+    }
+
+    // Join the collected word parts with spaces
+    return words.join(' ');
+  }
+
+  /// Converts a non-negative [Decimal] value to Mongolian currency words.
+  ///
+  /// Uses [MnOptions.currencyInfo] for unit names (e.g., төгрөг/төгрөг, мөнгө/мөнгө).
+  /// Applies contextual modification to numbers before units. Handles rounding if specified.
+  /// Correctly formats values with zero main units but non-zero subunits (e.g., 0.50).
+  ///
+  /// @param absValue Absolute currency value.
+  /// @param options The [MnOptions] with currency info and rounding flag.
+  /// @return Currency value as Mongolian words.
   String _handleCurrency(Decimal absValue, MnOptions options) {
     final CurrencyInfo currencyInfo = options.currencyInfo;
-    final Decimal multiplier =
-        Decimal.fromInt(100); // Standard 100 subunits per main unit.
+    // Standard multiplier for currencies with 2 decimal places (e.g., Tugrik/Mungu)
+    final Decimal multiplier = Decimal.fromInt(100);
 
     Decimal valueToConvert = absValue;
-    // Apply rounding to 2 decimal places if requested.
+    // Apply rounding if specified in options
     if (options.round) {
-      valueToConvert = absValue.round(scale: 2);
+      // Round to 2 decimal places if subunits exist, otherwise round to 0 decimals.
+      valueToConvert =
+          absValue.round(scale: currencyInfo.subUnitSingular != null ? 2 : 0);
     }
 
-    // Separate main and subunit values.
+    // Separate main and subunit integer values from the (potentially rounded) value
     final BigInt mainValue = valueToConvert.truncate().toBigInt();
     final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
+    // Round the subunit value to the nearest integer (handles potential floating point issues)
     final BigInt subunitValue =
-        (fractionalPart * multiplier).truncate().toBigInt();
+        (fractionalPart * multiplier).round(scale: 0).toBigInt();
 
-    // Convert main value to words. Context follows (the unit name).
-    String mainText = _convertInteger(mainValue, contextFollows: true);
-
-    // Get the main unit name (usually singular form in Mongolian).
+    String mainText = ""; // Holds the fully constructed main part string
+    // Default to plural main unit name, fallback to singular
     String mainUnitName =
         currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+    // Check if non-zero subunits exist and are defined
+    bool subunitExists =
+        subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null;
 
-    // Combine main number and unit.
-    String result = '$mainText $mainUnitName';
-
-    // Add subunit part if it exists and subunit name is defined.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      // Convert subunit value to words. Context follows (the subunit name).
-      String subunitText = _convertInteger(subunitValue, contextFollows: true);
-      String subUnitName = currencyInfo.subUnitSingular!;
-
-      // Append subunit part (no "and" separator typically).
-      result += ' $subunitText $subUnitName';
+    // --- Generate Main Currency Part ---
+    if (mainValue > BigInt.zero) {
+      // Convert main value integer, indicating context follows (the unit name)
+      mainText = _convertInteger(mainValue, hasFollowingContext: true);
+      // Special modification for 11 before a unit (from original logic)
+      if (mainText == "арван нэг") {
+        mainText = "арван нэгэн";
+      }
+      mainText += ' $mainUnitName'; // Append the unit name
     }
-    return result;
+
+    // --- Generate Subunit Currency Part ---
+    String subunitText = ""; // Holds the fully constructed subunit part string
+    if (subunitExists) {
+      String subUnitName = currencyInfo
+          .subUnitSingular!; // Get subunit name (non-null checked above)
+      // Convert subunit value integer, indicating context follows (the subunit name)
+      subunitText = _convertInteger(subunitValue, hasFollowingContext: true);
+      // Special modification for 11 before a unit (from original logic)
+      if (subunitText == "арван нэг") {
+        subunitText = "арван нэгэн";
+      }
+      subunitText += ' $subUnitName'; // Append the subunit name
+    }
+
+    // --- Combine Parts ---
+    if (mainText.isNotEmpty && subunitText.isNotEmpty) {
+      // If both parts exist, join them using the custom separator or a default space
+      final separator =
+          currencyInfo.separator; // Get separator from CurrencyInfo
+      return separator != null
+          ? '$mainText $separator $subunitText'
+          : '$mainText $subunitText'; // Use separator or space
+    } else if (mainText.isNotEmpty) {
+      // Only main part exists
+      return mainText;
+    } else if (subunitText.isNotEmpty) {
+      // Only subunit part exists (handles 0.xx cases)
+      return subunitText;
+    } else {
+      // Value was zero or rounded to zero, and no subunits were generated
+      // Re-check subunitText just in case (though redundant if logic above is sound)
+      // Return "zero" + main unit name if truly zero.
+      if (subunitText.isNotEmpty) {
+        // Defensive check
+        return subunitText;
+      } else {
+        return '$_zero $mainUnitName'; // e.g., "тэг төгрөг"
+      }
+    }
   }
 
-  /// Formats a standard [Decimal] number (non-currency, non-year) into words.
-  /// Handles both the integer and fractional parts. Determines if context follows the integer part.
-  /// The fractional part is read digit by digit after the separator word ("цэг" or "таслал").
+  /// Converts a non-negative standard [Decimal] number to Mongolian words.
   ///
-  /// [absValue]: The non-negative number.
-  /// [options]: Mongolian options, used for `decimalSeparator`.
-  /// Returns the number in words, e.g., "нэг зуун хорин гурван цэг дөрөв тав".
-  String _handleStandardNumber(Decimal absValue, MnOptions options) {
+  /// Converts the integer part using [_convertInteger], respecting context for decimals.
+  /// Converts the fractional part digit by digit (e.g., 0.45 -> "цэг дөрөв тав").
+  /// Uses the decimal separator word specified in [MnOptions.decimalSeparator].
+  ///
+  /// @param absValue The absolute decimal value.
+  /// @param options The [MnOptions] for formatting control (decimal separator).
+  /// @param hasFollowingDecimalContext Pre-calculated flag indicating if a non-zero decimal part exists.
+  /// @return The number formatted as Mongolian words.
+  String _handleStandardNumber(
+      Decimal absValue, MnOptions options, bool hasFollowingDecimalContext) {
     final BigInt integerPart = absValue.truncate().toBigInt();
-    final Decimal fractionalPart = absValue - absValue.truncate();
-    // Does a fractional part actually exist and need to be spoken?
-    bool fractionExistsAndSpoken = fractionalPart > Decimal.zero;
 
-    // Convert the integer part. Context follows if there is a fractional part to speak.
-    String integerWords = (integerPart == BigInt.zero &&
-            fractionExistsAndSpoken)
-        ? _zero // Handle 0.5 -> "тэг цэг тав"
-        : _convertInteger(integerPart, contextFollows: fractionExistsAndSpoken);
+    String integerWords = "";
+    // Handle integer part
+    if (integerPart == BigInt.zero) {
+      // If integer is zero, only output "тэг" if a decimal part follows
+      if (hasFollowingDecimalContext) {
+        integerWords = _zero;
+      } else {
+        // If integer is zero and no decimal follows, the number is just zero
+        return _zero;
+      }
+    } else {
+      // Convert non-zero integer part, passing context flag
+      integerWords = _convertInteger(integerPart,
+          hasFollowingContext: hasFollowingDecimalContext);
+    }
 
+    // Handle fractional part
     String fractionalWords = '';
-    if (fractionExistsAndSpoken) {
-      // Determine the separator word.
+    if (hasFollowingDecimalContext) {
+      // Only proceed if decimal part exists
+      // Determine separator word ("цэг" or "таслал")
       String separatorWord;
       switch (options.decimalSeparator) {
         case DecimalSeparator.comma:
@@ -322,171 +618,40 @@ class Num2TextMN implements Num2TextBase {
           break;
         case DecimalSeparator.point:
         case DecimalSeparator.period:
-        default: // Default to point for Mongolian context.
+        default: // Default to point for Mongolian standard numbers
           separatorWord = _decimalPointWord;
           break;
       }
 
-      // Get fractional digits.
-      String fractionalDigits = absValue.toString().split('.').last;
+      // Get fractional digits string
+      String originalFractional = absValue.toString().split('.').last;
+      // Remove trailing zeros for standard reading (e.g., 1.50 -> 1.5)
+      String speakableFractional =
+          originalFractional.replaceAll(RegExp(r'0+$'), '');
 
-      // Remove trailing zeros as they are usually not spoken.
-      fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
+      // Convert each remaining digit to its word form
+      List<String> digitWords = speakableFractional
+          .split('')
+          .map((digit) {
+            final int digitInt =
+                int.tryParse(digit) ?? -1; // Parse digit safely
+            if (digitInt == 0) return _zero; // Handle zero digit
+            if (digitInt > 0 && digitInt < _units.length)
+              return _units[digitInt]; // Use base unit words 1-9
+            return ''; // Return empty for invalid characters
+          })
+          .where((s) =>
+              s.isNotEmpty) // Filter out any empty strings from invalid parses
+          .toList();
 
-      // If all digits were zeros, don't speak the fractional part.
-      if (fractionalDigits.isEmpty) {
-        fractionalWords = '';
-        // Re-evaluate integer context if fraction becomes empty.
-        if (integerPart != BigInt.zero) {
-          integerWords = _convertInteger(integerPart, contextFollows: false);
-        }
-      } else {
-        // Convert each remaining digit to its base word form.
-        List<String> digitWords = fractionalDigits.split('').map((digit) {
-          final int digitInt = int.parse(digit);
-          // Use base unit words (0 = тэг).
-          return digitInt == 0 ? _zero : _units[digitInt];
-        }).toList();
-        // Combine separator and digit words.
-        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+      // Combine separator and digit words if any digits were converted
+      if (digitWords.isNotEmpty) {
+        fractionalWords =
+            ' $separatorWord ${digitWords.join(' ')}'; // e.g., " цэг дөрөв тав"
       }
     }
-    // This handles cases like Decimal('1.0') which might have scale but no fractional part > 0.
-    // We need to ensure the integer part is converted without contextFollows=true in such cases.
-    else if (integerPart > BigInt.zero &&
-        absValue.scale > 0 &&
-        absValue.isInteger) {
-      integerWords = _convertInteger(integerPart, contextFollows: false);
-    }
 
-    // Combine integer and fractional parts.
-    return '$integerWords$fractionalWords';
-  }
-
-  /// Converts a non-negative [BigInt] integer into its Mongolian word representation.
-  /// Breaks the number into 3-digit chunks and applies scale words.
-  /// Propagates the `contextFollows` flag to handle word form variations.
-  ///
-  /// [n]: The non-negative integer to convert.
-  /// [contextFollows]: True if this number is followed by another significant word (scale word, unit, fractional part).
-  /// Returns the integer in words, e.g., "нэг сая хоёр зуун гучин дөрвөн мянга таван зуу".
-  String _convertInteger(BigInt n, {required bool contextFollows}) {
-    if (n < BigInt.zero)
-      throw ArgumentError("Integer must be non-negative: $n");
-    if (n == BigInt.zero) return _zero; // Base case: zero.
-
-    // Handle numbers less than 1000 directly.
-    if (n < BigInt.from(1000)) {
-      // Pass the contextFollows flag down.
-      return _convertChunk(n.toInt(), isFollowedByContext: contextFollows);
-    }
-
-    List<String> parts = []; // Stores word parts for each scale level.
-    final BigInt oneThousand = BigInt.from(1000);
-    int scaleLevel = 0; // 0=units, 1=thousands, 2=millions...
-    BigInt remaining = n;
-
-    // Process the number in chunks of 1000 from right to left.
-    while (remaining > BigInt.zero) {
-      // Get the current 3-digit chunk (0-999).
-      int chunkInt = (remaining % oneThousand).toInt();
-      remaining ~/= oneThousand; // Move to the next higher chunk.
-
-      if (chunkInt > 0) {
-        // Determine if the current chunk needs modified forms.
-        // It needs modification if it's *not* the absolute lowest chunk AND it's not the final part of the whole number.
-        // OR if the absolute lowest chunk *is* followed by external context (like currency or decimal).
-        bool chunkIsFollowed =
-            (scaleLevel > 0) || (scaleLevel == 0 && contextFollows);
-
-        // Convert the 3-digit chunk.
-        String chunkText =
-            _convertChunk(chunkInt, isFollowedByContext: chunkIsFollowed);
-
-        // Get the scale word (мянга, сая, etc.) if applicable.
-        String? scaleWord = _scaleWords[scaleLevel];
-        if (scaleWord != null && scaleLevel > 0) {
-          // Combine chunk text and scale word.
-          parts.add("$chunkText $scaleWord");
-        } else if (scaleLevel == 0) {
-          // Add the base chunk text (0-999).
-          parts.add(chunkText);
-        }
-      }
-      scaleLevel++; // Move to the next scale level.
-    }
-
-    // Join the parts in reverse order (highest scale first) with spaces.
-    return parts.reversed.join(' ');
-  }
-
-  /// Converts a number between 0 and 999 into its Mongolian word representation.
-  /// Handles variations in hundreds ("зуу" vs "зуун") and tens ("хорь" vs "хорин")
-  /// based on whether they are followed by other parts or context.
-  ///
-  /// [n]: The number to convert (must be 0-999).
-  /// [isFollowedByContext]: True if this chunk is followed by a scale word or external context (currency, decimal).
-  /// Returns the chunk in words, e.g., "зуун хорин гурав", "таван зуу", "хорь".
-  String _convertChunk(int n, {required bool isFollowedByContext}) {
-    if (n == 0) return ""; // Empty string for zero within a larger number.
-    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
-
-    List<String> words = []; // Stores word parts for this chunk.
-    int remainder = n;
-
-    // --- Process Hundreds ---
-    if (remainder >= 100) {
-      int hundredDigit = remainder ~/ 100; // Get the hundreds digit (1-9).
-      // Get the unit word for the digit (e.g., "нэг", "хоёр", "гурван"...).
-      // Needs modification because it precedes "зуу(н)".
-      String hundredPrefix =
-          _getUnitWord(hundredDigit, needsModification: true);
-
-      int unitsAndTens = remainder % 100; // The remaining 0-99 part.
-      // Determine if hundred word is combined ("зуун") or standalone ("зуу").
-      // Use combined form if followed by units/tens OR external context.
-      String hundredWord = (unitsAndTens > 0 || isFollowedByContext)
-          ? _hundredCombined
-          : _hundredStandalone;
-
-      // Add the prefix and the hundred word (e.g., "нэг зуун", "гурван зуу").
-      words.add("$hundredPrefix $hundredWord");
-      remainder %= 100; // Update remainder.
-    }
-
-    // --- Process Tens and Units (0-99) ---
-    if (remainder > 0) {
-      if (remainder < 10) {
-        // 1-9: Get the unit word, apply modification based on external context.
-        String unitWord =
-            _getUnitWord(remainder, needsModification: isFollowedByContext);
-        words.add(unitWord);
-      } else if (remainder < 20) {
-        // 10-19: Use the specific teen words. These don't usually change.
-        words.add(_teens[remainder - 10]);
-      } else {
-        // 20-99:
-        int tenDigit = remainder ~/ 10;
-        int unitDigit = remainder % 10;
-
-        // Determine if tens word is standalone or combined.
-        // Use standalone if it's the end of the chunk AND not followed by external context.
-        bool useStandaloneTen = (unitDigit == 0 && !isFollowedByContext);
-        String tenWord = useStandaloneTen
-            ? _tensStandalone[tenDigit]
-            : _tensCombined[tenDigit];
-        words.add(tenWord); // Add "хорь"/"хорин", "гуч"/"гучин", etc.
-
-        if (unitDigit > 0) {
-          // If there's a unit digit, add its word.
-          // Apply modification based on external context.
-          String unitWord =
-              _getUnitWord(unitDigit, needsModification: isFollowedByContext);
-          words.add(unitWord);
-        }
-      }
-    }
-    // Join the parts (hundreds, tens, units) with spaces.
-    return words.join(' ');
+    // Combine integer and fractional parts
+    return '$integerWords$fractionalWords'.trim();
   }
 }

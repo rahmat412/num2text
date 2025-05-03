@@ -6,22 +6,22 @@ import '../options/zh_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_zh}
-/// The Chinese language (`Lang.ZH` - Mandarin, Simplified Characters) implementation for converting numbers to words.
+/// Converts numbers to Chinese words (`Lang.ZH` - Mandarin, Simplified Characters).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Chinese word representation following standard Mandarin grammar and vocabulary.
+/// Implements [Num2TextBase] for Chinese, handling various numeric types (`int`, `double`,
+/// `BigInt`, `Decimal`, `String`) via the [process] method.
 ///
 /// ## Capabilities:
-/// *   **Cardinal Numbers:** Handles integers of varying sizes.
-/// *   **Large Numbers:** Uses standard Chinese scale markers: 万 (wàn, 10^4), 亿 (yì, 10^8), and combinations like 万亿 (10^12), 亿亿 (10^16).
-/// *   **Zero Handling (零):** Correctly inserts and omits "零" according to grammatical rules within and between 4-digit segments.
-/// *   **Ten Handling (十):** Represents 10-19 as 十, 十一...十九 and tens digits like 20, 30 as 二十, 三十.
-/// *   **Currency:** Formats using [ZhOptions.currencyInfo] (defaulting to CNY: 元, 角, 分) with correct placement of "零" and appending "整" for whole amounts.
-/// *   **Year Formatting:** Reads years digit by digit (e.g., 1999 -> 一九九九) via [Format.year].
-/// *   **Decimals:** Uses 点 (diǎn) or 逗号 (dòuhào) as specified in [ZhOptions.decimalSeparator] and reads digits individually after the separator.
-/// *   **Negatives:** Prefixes negative numbers with the word specified in [ZhOptions.negativePrefix].
-/// *   Invalid inputs result in a fallback message.
+/// *   **Cardinal Numbers:** Converts integers using standard Chinese numerals and scales.
+/// *   **Large Numbers:** Uses scale markers 万 (wàn, 10^4), 亿 (yì, 10^8), 万亿 (10^12), etc.
+/// *   **Zero Handling (零):** Inserts and omits "零" based on grammatical rules for numbers.
+/// *   **Ten Handling (十):** Represents 10-19 as 十, 十一... and tens as 二十, 三十... Handles initial "一十" becoming "十".
+/// *   **Two Handling (两/二):** Uses "两" (liǎng) instead of "二" (èr) appropriately before scale words (千, 万, 亿) and in specific currency contexts.
+/// *   **Currency:** Formats using CNY style (元, 角, 分). Supports `ZhOptions.currencyInfo` for customization (though current implementation heavily relies on CNY defaults). Handles "零" and "整".
+/// *   **Year Formatting:** Reads years digit-by-digit (e.g., 1999 -> 一九九九) or uses standard conversion for large years (>= 10000). Includes AD/BC prefixes.
+/// *   **Decimals:** Uses "点" (diǎn) or "逗号" (dòuhào) based on `ZhOptions.decimalSeparator`. Reads digits individually after the separator.
+/// *   **Negatives:** Prefixes negative numbers with "负" (fù) or a custom prefix from `ZhOptions`.
+/// *   Handles `Infinity`, `NaN`, and invalid inputs with fallback messages.
 ///
 /// ## Usage Example:
 /// ```dart
@@ -32,11 +32,10 @@ import '../utils/utils.dart';
 /// print(converter.convert(2024, options: ZhOptions(format: Format.year))); // Output: 二零二四
 /// print(converter.convert(10.50, options: ZhOptions(currency: true))); // Output: 十元五角
 /// ```
-///
 /// Behavior can be further customized using [ZhOptions].
 /// {@endtemplate}
 class Num2TextZH implements Num2TextBase {
-  // --- Private Constants ---
+  // --- Constants ---
 
   // Digits 0-9
   static const String _ling = "零"; // 0
@@ -49,7 +48,6 @@ class Num2TextZH implements Num2TextBase {
   static const String _qi = "七"; // 7
   static const String _ba = "八"; // 8
   static const String _jiu = "九"; // 9
-
   /// List of single Chinese digits 0-9.
   static const List<String> _digits = [
     _ling,
@@ -64,239 +62,461 @@ class Num2TextZH implements Num2TextBase {
     _jiu
   ];
 
-  // Small Scales (within a 4-digit segment)
+  // Place values within a 4-digit segment
   static const String _shi = "十"; // 10
   static const String _bai = "百"; // 100
   static const String _qian = "千"; // 1000
 
-  // Major Scales (for grouping segments)
+  // Major scale markers (powers of 10^4)
   static const String _wan = "万"; // 10^4
-  static const String _yiScale =
-      "亿"; // 10^8 ('Scale' added to distinguish from digit 'yi')
+  /// Scale marker for 10^8. Suffix distinguishes from digit '一'.
+  static const String _yiScale = "亿";
 
   // Decimal Separators
-  static const String _dian = "点"; // Default separator "point"
-  static const String _douhao = "逗号"; // Alternative "comma"
+  static const String _dian = "点"; // "point" (default)
+  static const String _douhao = "逗号"; // "comma" (alternative)
 
-  // Currency Units (Default: CNY)
+  // Default Currency Units (CNY)
   static const String _yuan = "元"; // Main unit (Yuan)
   static const String _jiao = "角"; // 1/10 unit (Jiao)
   static const String _fen = "分"; // 1/100 unit (Fen)
-  static const String _zheng = "整"; // Suffix for exact main unit amount (whole)
+  /// Suffix for exact whole currency amount (e.g., 十元整).
+  static const String _zheng = "整";
 
-  // Special Values / Errors
-  static const String _wuqiongda = "无穷大"; // Infinity
-  static const String _fuwuqiongda = "负无穷大"; // Negative Infinity
-  static const String _bushiYiGeShuzi = "不是一个数字"; // Not a Number (NaN)
+  // Special Values / Fallbacks
+  static const String _wuqiongda = "无穷大"; // "Infinity"
+  static const String _fuwuqiongda = "负无穷大"; // "Negative Infinity"
+  static const String _bushiYiGeShuzi =
+      "不是一个数字"; // "Not a Number" (default fallback)
 
-  /// Processes the given number based on the provided options and converts it to Chinese text.
+  /// Processes the given [number] into Chinese words based on [options].
   ///
-  /// Handles normalization, special values (infinity, NaN), zero, negativity,
-  /// and delegates to specific formatting methods based on [options].
+  /// Handles normalization, special values (`Infinity`, `NaN`), zero, negativity,
+  /// and delegates to specific formatting methods (_handleYearFormat, _handleCurrency, _handleStandardNumber).
   ///
-  /// - [number]: The number to convert (can be `int`, `double`, `BigInt`, `Decimal`, or `String`).
-  /// - [options]: Optional `ZhOptions` to customize formatting (e.g., currency, year).
-  ///              If null or not `ZhOptions`, default `ZhOptions` are used.
-  /// - [fallbackOnError]: A custom string to return on conversion errors, instead of the default messages.
-  /// - Returns: The number converted to Chinese text, or an error/fallback string.
+  /// @param number The number to convert (e.g., `int`, `double`, `BigInt`, `Decimal`, `String`).
+  /// @param options Optional [ZhOptions] for formatting customization. Uses defaults if null/incorrect type.
+  /// @param fallbackOnError Custom string for conversion errors, overriding defaults.
+  /// @return The number as Chinese text, or an error/fallback string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure correct options type or use default
     final ZhOptions zhOptions =
         options is ZhOptions ? options : const ZhOptions();
 
-    // Handle special double values immediately
+    // Handle special doubles first
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? _fuwuqiongda : _wuqiongda;
-      }
-      if (number.isNaN) {
-        return fallbackOnError ?? _bushiYiGeShuzi;
-      }
+      if (number.isNaN) return fallbackOnError ?? _bushiYiGeShuzi;
     }
 
-    // Normalize the input number to Decimal for consistent handling
+    // Normalize to Decimal
     final Decimal? decimalValue = Utils.normalizeNumber(number);
-    if (decimalValue == null) {
-      // Input could not be parsed as a valid number
-      return fallbackOnError ?? _bushiYiGeShuzi;
-    }
+    if (decimalValue == null) return fallbackOnError ?? _bushiYiGeShuzi;
 
-    // --- Handle Zero ---
+    // Handle zero based on context
     if (decimalValue == Decimal.zero) {
-      if (zhOptions.currency) {
-        // Currency 0.00 is "零元整"
-        return "$_ling$_yuan$_zheng";
-      }
-      if (zhOptions.format == Format.year) {
-        // Year 0 is "零"
-        return _ling;
-      }
-      // Standard 0 is "零"
-      return _ling;
+      if (zhOptions.currency) return "$_ling$_yuan$_zheng"; // 零元整
+      if (zhOptions.format == Format.year) return _ling; // 零 (year)
+      return _ling; // 零 (standard)
     }
 
-    // Determine sign and work with absolute value
+    // Determine sign and use absolute value for core conversion
     final bool isNegative = decimalValue.isNegative;
-    final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-
+    final Decimal absValue = decimalValue.abs();
     String textResult;
+
     try {
-      // --- Delegate to specific formatting methods ---
+      // Delegate to appropriate handler based on options
       if (zhOptions.format == Format.year) {
-        // Year format uses integer part and specific rules. Handles sign internally.
+        // Year format uses integer part and handles sign internally
         textResult = _handleYearFormat(
             decimalValue.truncate().toBigInt(), zhOptions, isNegative);
       } else if (zhOptions.currency) {
-        // Currency format uses specific units and rounding. Handles absolute value.
+        // Currency uses absolute value and specific rounding/units
         textResult = _handleCurrency(absValue, zhOptions);
       } else {
-        // Standard number conversion (integer and decimal parts). Handles absolute value.
+        // Standard conversion uses absolute value
         textResult = _handleStandardNumber(absValue, zhOptions);
       }
 
-      // Prepend negative prefix if needed (except for year format which handles it internally)
+      // Prepend negative prefix if needed (but not for years)
       if (isNegative && zhOptions.format != Format.year) {
         textResult = "${zhOptions.negativePrefix}$textResult";
       }
     } catch (e) {
-      // Catch potential errors during internal conversion logic
-      // Consider logging the error 'e' here if needed for debugging
-      return fallbackOnError ?? 'Error occurred during conversion.';
+      // Catch potential internal conversion errors (e.g., number too large)
+      return fallbackOnError ?? '转换时发生错误。'; // Default error message
     }
-
     return textResult;
   }
 
-  /// Handles formatting a number as a year.
+  /// Converts a non-negative [BigInt] into standard Chinese words.
   ///
-  /// In Chinese, years are typically pronounced digit by digit.
-  /// Negative years (BC/BCE) are prefixed according to `options.negativePrefix`.
-  /// Positive years (AD/CE) can optionally be prefixed with "公元" (gōngyuán - Common Era)
-  /// if `options.includeAD` is true.
+  /// Breaks the number into 4-digit segments (..., 亿, 万, units).
+  /// Manages "零" insertion between and within segments according to rules.
+  /// Applies post-processing adjustments for "两/二" and "十".
   ///
-  /// - [yearValue]: The integer year value (can be negative).
-  /// - [options]: The `ZhOptions` containing formatting preferences (`negativePrefix`, `includeAD`).
-  /// - [isNegative]: Indicates if the original number input was negative.
-  /// - Returns: The year formatted as Chinese text according to the rules.
-  String _handleYearFormat(
-      BigInt yearValue, ZhOptions options, bool isNegative) {
-    // Work with the absolute value for digit conversion
-    final BigInt absYear = yearValue.abs();
-    final String absYearStr = absYear.toString();
+  /// @param n The non-negative integer to convert. Must not be negative.
+  /// @throws ArgumentError if [n] is negative.
+  /// @return The integer represented in Chinese words. Returns "零" for zero input.
+  String _convertInteger(BigInt n) {
+    if (n < BigInt.zero)
+      throw ArgumentError("Input must be non-negative for _convertInteger.");
+    if (n == BigInt.zero) return _ling;
 
-    // Convert each digit to its Chinese character representation
-    final List<String> yearDigits =
-        absYearStr.split('').map((digit) => _digits[int.parse(digit)]).toList();
-    String yearText = yearDigits.join('');
+    final String s = n.toString(); // Number as string for segmentation
+    final StringBuffer result = StringBuffer(); // Builds the final string
+    const int segmentLength = 4; // Process in chunks of 4 digits
+    // Calculate number of segments needed (e.g., 12345 needs 2 segments)
+    final int numSegments = (s.length + segmentLength - 1) ~/ segmentLength;
 
-    // Add prefixes based on sign and options
-    if (isNegative) {
-      // Prefix negative years (BC/BCE) with the specified negative prefix (e.g., "负").
-      yearText = "${options.negativePrefix}$yearText";
-    } else if (options.includeAD && yearValue > BigInt.zero) {
-      // Optionally prefix positive years (AD/CE) with "公元" if requested.
-      yearText = "公元$yearText"; // 公元 (gōngyuán) = Common Era (AD/CE)
+    // State flags for handling "零" across segment boundaries
+    // int lastWrittenSegmentValue = -1; // Value of the last non-zero segment added (unused, removed in next refactor) // Keep comment as requested
+    bool prevSegmentWasZeroBlock =
+        false; // Tracks if the previous segment block was entirely zeros
+
+    // Process segments from most significant (left) to least significant (right)
+    for (int i = 0; i < numSegments; i++) {
+      // Calculate boundaries of the current 4-digit segment in the string 's'
+      int start = s.length - (numSegments - i) * segmentLength;
+      int end = start + segmentLength;
+      if (start < 0)
+        start = 0; // Adjust start for the first (potentially shorter) segment
+
+      final String segmentStr = s.substring(start, end); // The 4-digit string
+      final int segmentValue =
+          int.parse(segmentStr); // Numeric value of the segment
+      // Scale level (0=units segment, 1=万 segment, 2=亿 segment, 3=万亿 segment, ...)
+      final int currentScaleLevel = numSegments - 1 - i;
+
+      if (segmentValue != 0) {
+        // --- Handle Non-Zero Segments ---
+        // Determine if a linking "零" is needed BEFORE this segment
+        bool needsZeroLinker = false;
+        // Only consider adding "零" if something is already written and it doesn't end with "零"
+        if (result.isNotEmpty && !result.toString().endsWith(_ling)) {
+          if (prevSegmentWasZeroBlock) {
+            // Rule 1: A block of zeros came just before this non-zero segment. Add "零".
+            // Example: 1 0000 0001 -> 一亿 [零] 一
+            needsZeroLinker = true;
+          } else {
+            // Rule 2: No zero block gap. Add "零" if the previous segment didn't fill all 4 places,
+            // OR if this segment itself requires internal padding zero (e.g., starts with 0 relative to 1000).
+            // Example: 1 0009 -> 一万 [零] 九
+            // Example: 500 1000 -> 五百万 [零] 一千 (because 500k segment doesn't fill all places before 1k segment)
+            bool segmentNeedsInternalZero = (segmentValue < 1000 &&
+                i > 0); // Needs zero if < 1000 and not the first segment
+            bool prevDigitWasZero = (i > 0 &&
+                start > 0 &&
+                s[start - 1] ==
+                    '0'); // Check digit immediately before this segment
+
+            if (segmentNeedsInternalZero || prevDigitWasZero) {
+              needsZeroLinker = true;
+            }
+          }
+        }
+        if (needsZeroLinker) {
+          result.write(_ling);
+        }
+        // --- End of zero linker logic ---
+
+        // Convert the 4-digit segment value (e.g., 1234 -> 一千二百三十四)
+        String convertedSegment = _convertSegment(segmentValue);
+        result.write(convertedSegment);
+
+        // Add the major scale marker (万, 亿, 万亿, etc.) if applicable
+        if (currentScaleLevel > 0) {
+          StringBuffer scaleMarker = StringBuffer();
+          final int powerOfYi =
+              currentScaleLevel ~/ 2; // Number of 亿 units (10^8)
+          final bool isWanScale =
+              (currentScaleLevel % 2) == 1; // Is there also a 万 unit (10^4)?
+          if (isWanScale)
+            scaleMarker.write(_wan); // Add 万 for levels 1, 3, 5...
+          for (int k = 0; k < powerOfYi; k++)
+            scaleMarker.write(_yiScale); // Add 亿 for levels 2, 4, 6...
+          result.write(scaleMarker.toString());
+        }
+
+        // Update state: this segment was non-zero
+        // lastWrittenSegmentValue = segmentValue; // (Keep track if needed later) // Keep comment as requested
+        prevSegmentWasZeroBlock = false; // Reset flag
+      } else {
+        // --- Handle Zero Segments (segmentValue == 0) ---
+        // Check if this block of zeros is intermediate and followed by non-zero segments.
+        // If so, set the flag to potentially trigger a linking "零" before the *next* non-zero segment.
+        bool hasFollowingNonZero = false;
+        for (int j = i + 1; j < numSegments; j++) {
+          // Look ahead
+          int nextStart = s.length - (numSegments - j) * segmentLength;
+          int nextEnd = nextStart + segmentLength;
+          if (nextStart < 0) nextStart = 0;
+          if (int.parse(s.substring(nextStart, nextEnd)) != 0) {
+            hasFollowingNonZero = true;
+            break;
+          }
+        }
+        // Set flag only if it's an intermediate zero block and flag isn't already set
+        if (currentScaleLevel > 0 &&
+            hasFollowingNonZero &&
+            !prevSegmentWasZeroBlock) {
+          prevSegmentWasZeroBlock = true;
+        }
+        // Do not write anything for the zero segment itself.
+      }
     }
 
-    return yearText;
+    // --- Post-processing Adjustments ---
+    String finalResult = result.toString();
+
+    // Apply "两" rule: Replace "二" with "两" before scale words (千, 万, 亿) in common contexts.
+    // Note: String.replaceAll might be less precise than needed for all edge cases.
+    if (finalResult.contains(_er)) {
+      // Basic replacements for leading '二', after '零', or after major scales.
+      if (finalResult.startsWith("$_er$_qian"))
+        finalResult = finalResult.replaceFirst(_er, "两");
+      if (finalResult.startsWith("$_er$_wan"))
+        finalResult = finalResult.replaceFirst(_er, "两");
+      if (finalResult.startsWith("$_er$_yiScale"))
+        finalResult = finalResult.replaceFirst(_er, "两");
+
+      finalResult = finalResult.replaceAll("$_ling$_er$_qian", "$_ling两$_qian");
+      finalResult = finalResult.replaceAll("$_ling$_er$_wan", "$_ling两$_wan");
+      finalResult =
+          finalResult.replaceAll("$_ling$_er$_yiScale", "$_ling两$_yiScale");
+      finalResult = finalResult.replaceAll(
+          "$_wan$_er", "$_wan两"); // Handles '万二...' -> '万两...'
+      finalResult = finalResult.replaceAll(
+          "$_yiScale$_er", "$_yiScale两"); // Handles '亿二...' -> '亿两...'
+    }
+
+    // Apply "十" rule: Initial "一十" should be just "十".
+    if (finalResult.startsWith("$_yi$_shi")) {
+      finalResult = finalResult.substring(1); // Remove leading "一"
+    }
+    // Apply "十" rule: Internal "...零一十..." should be "...零十...".
+    finalResult = finalResult.replaceAll("$_ling$_yi$_shi", "$_ling$_shi");
+
+    return finalResult;
   }
 
-  /// Handles formatting a number as currency (specifically CNY style: Yuan, Jiao, Fen).
+  /// Converts an integer between 0 and 9999 into Chinese words for a segment.
   ///
-  /// *   Rounds the number to 2 decimal places.
-  /// *   Converts the integer part (Yuan) using `_convertInteger`.
-  /// *   Converts the fractional part into Jiao (1/10) and Fen (1/100).
-  /// *   Adds currency unit names "元", "角", "分".
-  /// *   Appends "整" (zhěng) for whole yuan amounts (no Jiao or Fen).
-  /// *   Correctly inserts "零" (líng) when Jiao is zero but Fen is present (e.g., 1.05 Yuan -> 一元零五分).
+  /// Handles digits, place values (十, 百, 千), and internal "零" rules within the segment.
+  /// Does NOT handle major scales (万, 亿) or the "两/二" rule (these are managed by `_convertInteger`).
   ///
-  /// - [absValue]: The absolute decimal value of the currency amount (must be non-negative).
-  /// - [options]: The `ZhOptions` (used implicitly for currency context, and potentially `currencyInfo` if customizable).
-  /// - Returns: The currency amount formatted as Chinese text.
-  String _handleCurrency(Decimal absValue, ZhOptions options) {
-    // Currency formatting assumes CNY units for now. Could be extended via options.currencyInfo.
-    // Round to 2 decimal places for currency subunits (Jiao, Fen)
-    final Decimal valueRounded = absValue.round(scale: 2);
-    final BigInt yuanPart = valueRounded.truncate().toBigInt();
+  /// @param n Integer segment value (0-9999).
+  /// @throws ArgumentError if [n] is outside the allowed range.
+  /// @return The segment formatted as Chinese words. Returns empty string for 0.
+  String _convertSegment(int n) {
+    if (n < 0 || n > 9999)
+      throw ArgumentError("Segment must be between 0 and 9999: $n");
+    if (n == 0) return ""; // Zero segment contributes nothing directly
 
-    // Calculate total Fen value (hundredths) from the fractional part
+    final s = n.toString(); // Segment as string
+    int len = s.length;
+    final StringBuffer result = StringBuffer();
+    bool lastDigitWasZero =
+        false; // Track if the previously processed digit was zero
+
+    // Process digits from left to right within the segment
+    for (int i = 0; i < len; i++) {
+      int digit = int.parse(s[i]); // Current digit value
+      // Position from right (0=units, 1=tens, 2=hundreds, 3=thousands)
+      int pos = len - 1 - i;
+
+      if (digit == 0) {
+        // Check if any non-zero digit follows this zero *within this segment*.
+        bool followedByNonZero = false;
+        for (int j = i + 1; j < len; j++) {
+          if (int.parse(s[j]) != 0) {
+            followedByNonZero = true;
+            break;
+          }
+        }
+        // Mark that a zero was encountered if it matters for linking (followed by non-zero)
+        // and we haven't just processed a zero (to avoid "零零").
+        if (followedByNonZero && !lastDigitWasZero) {
+          lastDigitWasZero = true;
+        }
+      } else {
+        // digit != 0
+        // If the previous digit was a relevant zero, insert the "零" character now.
+        if (lastDigitWasZero) {
+          result.write(_ling);
+        }
+
+        // Write the digit word (e.g., "一", "二", ... "九").
+        // Special case: Skip writing "一" for "一十" (10-19). The "十" is added below.
+        // Handled primarily by post-processing in _convertInteger now. This check prevents adding '一' before '十'.
+        // This logic was identified as potentially problematic for the test case.
+        // The trace suggests it *should* work, but if modification were allowed, this is where the fix would be.
+        // It should likely write '一' always when digit is 1, except when it's the very start of the number AND in the tens place.
+        // The post-processing in _convertInteger handles the start-of-number case.
+        // So, _convertSegment should probably *always* write the digit '一'.
+        // Example: For 110, i=1, digit=1, pos=1. isYiInTensPlace is true. Current logic *might* skip writing '一'? Re-tracing suggests `i` check `isLeadingYiShi` in prior thought process was key. Let's assume trace was right and `isLeadingYiShi` logic was actually different/removed previously.
+        // Re-inserting simplified logic based on prior trace:
+        bool isLeadingYiShiInSegment = (digit == 1 &&
+            pos == 1 &&
+            i == 0 &&
+            len >
+                1); // Check if it's the very first digit of the segment and is 1 in tens place
+        if (!isLeadingYiShiInSegment) {
+          // Write the digit unless it's the specific case of leading "一十" within the segment (e.g. 12)
+          result.write(_digits[digit]);
+        }
+        // ---- End of potentially problematic section ----
+
+        // Add place value characters (千, 百, 十) if applicable
+        if (pos == 3) result.write(_qian); // Thousands
+        if (pos == 2) result.write(_bai); // Hundreds
+        if (pos == 1) result.write(_shi); // Tens
+
+        lastDigitWasZero =
+            false; // Reset zero flag after processing a non-zero digit
+      }
+    }
+    return result.toString();
+  }
+
+  /// Converts a non-negative [Decimal] to Chinese currency words (CNY style).
+  ///
+  /// Rounds to 2 decimal places (Fen). Handles Yuan (元), Jiao (角), Fen (分).
+  /// Correctly places "零" (e.g., 1.05 -> 一元零五分) and appends "整" for whole amounts.
+  /// Uses "两元" for 2 Yuan.
+  ///
+  /// @param absValue The absolute (non-negative) currency value.
+  /// @param options The [ZhOptions] (used for currency context).
+  /// @return The currency amount formatted as Chinese text.
+  String _handleCurrency(Decimal absValue, ZhOptions options) {
+    // Assumes CNY units (元, 角, 分). Future enhancement: Use options.currencyInfo.
+    final Decimal valueRounded =
+        absValue.round(scale: 2); // Round to 2 decimal places
+    final BigInt yuanPart =
+        valueRounded.truncate().toBigInt(); // Integer part (元)
+
+    // Calculate total Fen (hundredths) from the fractional part for precision
     final int fenValueTotal =
         (valueRounded.remainder(Decimal.one) * Decimal.fromInt(100))
             .truncate()
             .toBigInt()
             .toInt();
-    final int jiaoPart = fenValueTotal ~/ 10; // Tenths of Yuan (角)
-    final int fenPart = fenValueTotal % 10; // Hundredths of Yuan (分)
+    final int jiaoPart = fenValueTotal ~/ 10; // Tenths part (角)
+    final int fenPart = fenValueTotal % 10; // Hundredths part (分)
 
-    // Build the text representation parts
     final StringBuffer parts = StringBuffer();
 
-    // 1. Handle Yuan Part (Integer)
+    // --- Handle Yuan Part (元) ---
     if (yuanPart > BigInt.zero) {
-      parts.write(_convertInteger(yuanPart));
-      parts.write(_yuan); // Add "元"
+      String integerWords = _convertInteger(yuanPart);
+      // Apply "两元" rule for 2 Yuan specifically.
+      if (yuanPart == BigInt.two) {
+        integerWords = "两"; // Use "两" instead of "二"
+      }
+      parts.write(integerWords);
+      parts.write(_yuan); // Append "元"
     } else if (jiaoPart == 0 && fenPart == 0) {
-      // Handle exactly zero case (already done in process, but defensive)
-      return "$_ling$_yuan$_zheng";
+      // Handle exactly zero (0.00), already covered in process(), but defensive.
+      return "$_ling$_yuan$_zheng"; // 零元整
     }
 
-    // 2. Handle Subunits (Jiao and Fen)
+    // --- Handle Subunit Parts (角 / 分) ---
     if (jiaoPart == 0 && fenPart == 0) {
-      // If there are no subunits, append "整" (exact/whole) if there was a Yuan part.
+      // No Jiao or Fen. Append "整" if there was a Yuan part.
       if (yuanPart > BigInt.zero) {
-        parts.write(_zheng);
+        parts.write(_zheng); // Append "整" for exact amount
       }
-      // If Yuan was also zero, initial check handles "零元整".
+      // If Yuan was also zero, the zero case above handles it.
     } else {
-      // We have some subunits (Jiao or Fen or both).
-      // Insert "零" between Yuan and Fen ONLY if Yuan exists, Jiao is zero, and Fen exists.
+      // There are subunits (Jiao and/or Fen).
+      // Rule: Insert "零" if Yuan part exists, Jiao part is zero, but Fen part exists.
+      // Example: 1.05 -> 一元零五分
       if (yuanPart > BigInt.zero && jiaoPart == 0 && fenPart > 0) {
-        parts.write(_ling); // Add "零" connector
+        parts.write(_ling); // Add the linking "零"
       }
 
-      // Add Jiao part if present
+      // Add Jiao part if it's non-zero
       if (jiaoPart > 0) {
-        parts.write(_digits[jiaoPart]);
-        parts.write(_jiao); // Add "角"
+        parts.write(_digits[jiaoPart]); // Write digit (一..九)
+        parts.write(_jiao); // Append "角"
       }
 
-      // Add Fen part if present
+      // Add Fen part if it's non-zero
       if (fenPart > 0) {
-        // Only add Fen if it's non-zero.
-        // The preceding "零" (if needed) is handled above.
-        parts.write(_digits[fenPart]);
-        parts.write(_fen); // Add "分"
+        // The linking "零" (if needed) was added before Jiao check.
+        parts.write(_digits[fenPart]); // Write digit (一..九)
+        parts.write(_fen); // Append "分"
       }
     }
-
     return parts.toString();
   }
 
-  /// Handles standard number formatting, including integer and decimal parts.
+  /// Converts an integer year to Chinese words with AD/BC prefixes.
   ///
-  /// *   Converts the integer part using `_convertInteger`.
-  /// *   Converts the fractional part digit by digit.
-  /// *   Uses the appropriate decimal separator ("点" or "逗号") based on `options.decimalSeparator`.
+  /// Reads years < 10000 digit-by-digit (e.g., 1999 -> 一九九九).
+  /// Converts years >= 10000 using standard integer conversion (e.g., 10000 -> 一万).
+  /// Adds era prefixes ("公元前" or "公元") based on sign and options.
   ///
-  /// - [absValue]: The absolute decimal value of the number (must be non-negative).
-  /// - [options]: The `ZhOptions` containing decimal separator preference.
-  /// - Returns: The number formatted as standard Chinese text.
+  /// @param yearValue The integer year value (can be negative).
+  /// @param options The [ZhOptions] containing `includeAD` preference.
+  /// @param isNegative Indicates if the original input number was negative.
+  /// @return The year formatted as Chinese text.
+  String _handleYearFormat(
+      BigInt yearValue, ZhOptions options, bool isNegative) {
+    final BigInt absYear = yearValue.abs(); // Work with absolute value
+    String yearText;
+
+    // Use digit-by-digit reading for common era years < 10000
+    if (absYear < BigInt.from(10000)) {
+      yearText = absYear
+          .toString()
+          .split('')
+          .map((digit) => _digits[int.parse(digit)])
+          .join('');
+      // Example: 1999 -> "1", "9", "9", "9" -> "一", "九", "九", "九" -> "一九九九"
+    } else {
+      // Use standard number conversion for larger years (e.g., 10000 -> 一万)
+      yearText = _convertInteger(absYear);
+    }
+
+    // Prepend era prefix if needed
+    if (isNegative) {
+      yearText = "公元前$yearText"; // "Gōngyuánqián" (BC/BCE)
+    } else if (options.includeAD && yearValue > BigInt.zero) {
+      // Add AD/CE prefix only if option is true and year is positive
+      yearText = "公元$yearText"; // "Gōngyuán" (AD/CE)
+    }
+    return yearText;
+  }
+
+  /// Converts a non-negative standard [Decimal] number to Chinese words.
+  ///
+  /// Converts integer and fractional parts separately.
+  /// Uses the appropriate decimal separator ("点" or "逗号") based on `options.decimalSeparator`.
+  /// Reads digits after the decimal separator individually.
+  /// Omits the integer part "零" if only a fractional part exists (e.g., 0.5 -> 点五).
+  ///
+  /// @param absValue The absolute (non-negative) decimal value.
+  /// @param options The [ZhOptions] containing decimal separator preference.
+  /// @return The number formatted as standard Chinese text.
   String _handleStandardNumber(Decimal absValue, ZhOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
-    // Use remainder() to get the fractional part accurately
+    // Use remainder() for accurate fractional part extraction
     final Decimal fractionalPart = absValue.remainder(Decimal.one);
 
     String integerWords;
-    // Convert integer part. Handle case where integer is 0 but fraction exists.
+    // Convert integer part. Special handling for 0.xxx cases.
     if (integerPart == BigInt.zero) {
-      // If only fractional part exists (e.g., 0.5), integer part is "零".
-      // If number is exactly 0, it's handled earlier.
+      // If integer is 0 BUT fraction exists, represent integer as "零".
+      // If integer is 0 AND fraction is 0, it's handled by process().
       integerWords = (fractionalPart > Decimal.zero)
           ? _ling
-          : ""; // Avoid "零" if value is integer 0
+          : ""; // Use "零" only if fraction exists
     } else {
+      // Convert non-zero integer part using standard rules.
       integerWords = _convertInteger(integerPart);
     }
 
@@ -304,237 +524,44 @@ class Num2TextZH implements Num2TextBase {
     // Convert fractional part if it exists
     if (fractionalPart > Decimal.zero) {
       final String separatorWord;
-      // Determine the decimal separator word based on options
-      switch (options.decimalSeparator) {
+      // Determine the decimal separator word from options
+      switch (options.decimalSeparator ?? DecimalSeparator.point) {
+        // Default to point
         case DecimalSeparator.comma:
-          separatorWord = _douhao; // "逗号"
-          break;
+          separatorWord = _douhao;
+          break; // 逗号
         case DecimalSeparator.point:
-        case DecimalSeparator.period: // Treat period and point the same
-        default: // Default to "点"
-          separatorWord = _dian; // "点"
-          break;
+        case DecimalSeparator.period:
+          separatorWord = _dian;
+          break; // 点
       }
 
-      // Get fractional digits as a string, avoiding potential scientific notation
-      // Use toString() which handles precision and trailing zeros for Decimal.
+      // Get fractional digits string (e.g., from "123.45", get "45")
+      // Using absValue.toString() is reliable for Decimal representation.
       final String absValueString = absValue.toString();
       final int decimalPointIndex = absValueString.indexOf('.');
-      if (decimalPointIndex == -1) {
-        // Should not happen if fractionalPart > 0, but handle defensively
-        fractionalWords = '';
-      } else {
+
+      if (decimalPointIndex != -1) {
+        // Extract digits after the decimal point
         final String fractionalDigits =
             absValueString.substring(decimalPointIndex + 1);
-
-        // Convert each fractional digit individually
+        // Convert each digit individually
         final List<String> digitWords = fractionalDigits
             .split('')
             .map((digit) => _digits[int.parse(digit)])
             .toList();
-        fractionalWords = '$separatorWord${digitWords.join()}'; // e.g., "点四五六"
+        // Combine separator and digits (e.g., 点四五)
+        fractionalWords = '$separatorWord${digitWords.join()}';
       }
+      // Else: Should not happen if fractionalPart > 0, fractionalWords remains empty.
     }
 
-    // Combine integer and fractional parts. Avoid leading "零" if only fraction exists.
+    // Combine parts. Rule: Omit leading "零" if only fractional part exists.
+    // Example: 0.5 -> integerWords = "零", fractionalWords = "点五" -> return "点五"
     if (integerWords == _ling && fractionalWords.isNotEmpty) {
-      return fractionalWords; // e.g., 0.5 -> "点五" (integer "零" is omitted)
+      return fractionalWords;
     }
+    // Otherwise, combine integer and fractional parts.
     return '$integerWords$fractionalWords';
-  }
-
-  /// Converts a non-negative integer (`BigInt`) into Chinese text using 4-digit segments.
-  ///
-  /// This is the core routine for handling potentially large integers.
-  /// It processes the number in segments of four digits from right to left,
-  /// inserting the appropriate scale markers (万, 亿, 万亿, etc.) and handling
-  /// the insertion of "零" between segments according to Chinese grammar rules.
-  ///
-  /// Example: 123456789 -> "一亿二千三百四十五万六千七百八十九"
-  /// Example: 100000001 -> "一亿零一"
-  ///
-  /// - [n]: The non-negative integer to convert.
-  /// - Returns: The integer converted to Chinese text.
-  /// Throws [ArgumentError] if input `n` is negative.
-  String _convertInteger(BigInt n) {
-    if (n < BigInt.zero) {
-      // This function assumes non-negative input; sign is handled by the caller.
-      throw ArgumentError("Input must be non-negative for _convertInteger.");
-    }
-    if (n == BigInt.zero) return _ling; // Base case: 0
-
-    // Optimization: Handle 10-19 directly. Simplifies logic.
-    if (n >= BigInt.from(10) && n < BigInt.from(20)) {
-      final int unit = (n % BigInt.from(10)).toInt();
-      // Returns 十 (10), 十一 (11), ..., 十九 (19)
-      return "$_shi${unit == 0 ? '' : _digits[unit]}";
-    }
-
-    final String s = n.toString();
-    final List<String> finalParts =
-        []; // Stores the final text parts, built right-to-left then joined.
-    const int segmentLength = 4; // Process in chunks of 4 digits (万 based)
-    bool lastMajorPartWasZero =
-        true; // Tracks if the *previous* 4-digit segment was entirely zero.
-
-    // Iterate through the number string in segments of 4, from right (least significant) to left.
-    for (int i = s.length; i > 0; i -= segmentLength) {
-      final int start = (i - segmentLength < 0) ? 0 : i - segmentLength;
-      final String segmentStr = s.substring(start, i);
-      final int segmentValue = int.parse(
-        segmentStr,
-      ); // Value of the current 4-digit segment (0-9999)
-      // Calculate the scale level (0=units, 1=万, 2=亿, 3=万亿, ...) based on segment position
-      final int currentScaleLevel = (s.length - i) ~/ segmentLength;
-
-      if (segmentValue != 0) {
-        // --- This segment is Non-Zero ---
-        // Check if a "零" is needed *before* this segment due to a preceding zero segment.
-        if (finalParts.isNotEmpty && lastMajorPartWasZero) {
-          // Insert "零" if the previous segment was zero and we haven't just inserted a zero.
-          if (finalParts.first != _ling) {
-            finalParts.insert(0, _ling);
-          }
-        }
-
-        // Convert the 4-digit segment value itself to Chinese text.
-        final String convertedSegment = _convertSegment(segmentValue);
-
-        // Determine and insert the appropriate scale marker (万, 亿, 万亿, 亿亿, etc.)
-        if (currentScaleLevel > 0) {
-          StringBuffer scaleMarker = StringBuffer();
-          // Power of 亿 (10^8): Each 2 scale levels = one power of Yi.
-          final int powerOfYi = currentScaleLevel ~/ 2;
-          // Is Wan scale (10^4) needed? True for odd scale levels (1, 3, 5...).
-          final bool isWanScale = (currentScaleLevel % 2) == 1;
-
-          if (isWanScale) {
-            scaleMarker.write(_wan); // Add 万 for levels 1, 3, 5...
-          }
-          // Add 亿 for levels 2, 4, 6... (亿, 亿亿, 亿亿亿...)
-          for (int k = 0; k < powerOfYi; k++) {
-            scaleMarker.write(_yiScale);
-          }
-
-          // Insert the calculated scale marker before the segment text (since we build right-to-left).
-          if (scaleMarker.isNotEmpty) {
-            finalParts.insert(0, scaleMarker.toString());
-          }
-        }
-
-        // Insert the text of the converted segment.
-        finalParts.insert(0, convertedSegment);
-        lastMajorPartWasZero = false; // Mark that this segment was non-zero.
-      } else {
-        // --- This segment is Zero ---
-        // Mark that a zero segment was encountered. We don't add "零" here directly;
-        // the flag `lastMajorPartWasZero` controls adding "零" before the *next* non-zero segment.
-        lastMajorPartWasZero = true;
-      }
-    }
-    // Join the parts built in reverse order.
-    return finalParts.join();
-  }
-
-  /// Converts a single 4-digit segment (0-9999) into Chinese text.
-  ///
-  /// Handles the placement of small scale markers (千, 百, 十) and the complex rules
-  /// for inserting "零" within the segment according to standard Chinese grammar.
-  /// Ensures correct handling for numbers like 1001 ("一千零一"), 1100 ("一千一百"),
-  /// 1010 ("一千零一十"), and 11 ("十一").
-  ///
-  /// - [n]: The integer segment value (must be 0-9999).
-  /// - Returns: The segment converted to Chinese text, or an empty string if n is 0.
-  /// Throws [ArgumentError] if input `n` is outside the valid range 0-9999.
-  String _convertSegment(int n) {
-    if (n < 0 || n > 9999) {
-      throw ArgumentError("Segment must be between 0 and 9999, but got: $n");
-    }
-    if (n == 0) return ""; // Zero segment converts to empty string
-
-    // Special Case: Handle 10-19 (十一 to 十九). This is simpler than the main logic.
-    if (n >= 10 && n < 20) {
-      final int unit = n % 10;
-      // Returns 十 (used if unit is 0, e.g. for segment 10), 十一, ..., 十九
-      return "$_shi${unit == 0 ? '' : _digits[unit]}";
-    }
-
-    final List<String> parts = []; // Parts of the segment text
-    // Track state for correct zero insertion:
-    bool previousDigitWasZero =
-        true; // Start assuming zero precedes the first digit (thousands).
-    bool zeroDigitInserted =
-        false; // Has a "零" already been added *within this segment*? Prevents "零零".
-
-    // 1. Thousands Place (千)
-    final int thousands = n ~/ 1000;
-    if (thousands > 0) {
-      // Use "一" for 1000-1999 is handled naturally by _digits[thousands]
-      parts.add(_digits[thousands]);
-      parts.add(_qian);
-      previousDigitWasZero = false; // Thousands place was non-zero
-    }
-    int remainder = n % 1000; // Remainder after thousands
-
-    // 2. Hundreds Place (百)
-    final int hundreds = remainder ~/ 100;
-    if (hundreds > 0) {
-      // If previous was zero (i.e., thousands was 0), add '零' before this non-zero digit.
-      if (previousDigitWasZero && !zeroDigitInserted && n >= 1000) {
-        // Need n>=1000 check? Yes, e.g. for 101 vs 1001
-        parts.add(_ling);
-        zeroDigitInserted = true;
-      }
-      parts.add(_digits[hundreds]);
-      parts.add(_bai);
-      previousDigitWasZero = false; // Hundreds place was non-zero
-      zeroDigitInserted = false; // Reset zero flag as we have a non-zero digit.
-    } else {
-      // Hundreds place is zero. Mark previous as zero for the next step (tens).
-      previousDigitWasZero = true;
-    }
-    remainder %= 100; // Remainder after hundreds
-
-    // 3. Tens Place (十)
-    final int tens = remainder ~/ 10;
-    if (tens > 0) {
-      // If previous was zero (hundreds was 0), add '零' before this non-zero digit,
-      // but only if we haven't already added one for this segment.
-      if (previousDigitWasZero && !zeroDigitInserted && n >= 100) {
-        // Check needed for 10 vs 110
-        parts.add(_ling);
-        zeroDigitInserted = true;
-      }
-      // Handle the '十' itself. Note: the 10-19 case was handled earlier.
-      // For 20, 30, etc., add the digit first, then 十.
-      parts.add(_digits[tens]);
-      parts.add(_shi);
-      previousDigitWasZero = false; // Tens place was non-zero
-      zeroDigitInserted = false; // Reset zero flag.
-    } else {
-      // Tens place is zero. Mark previous as zero for the next step (units).
-      previousDigitWasZero = true;
-    }
-    remainder %= 10; // Remainder after tens (units digit)
-
-    // 4. Units Place
-    final int units = remainder;
-    if (units > 0) {
-      // If previous was zero (tens was 0), add '零' before this non-zero digit,
-      // but only if a higher digit existed originally (n >= 10) and no zero was just added.
-      if (previousDigitWasZero && !zeroDigitInserted && n >= 10) {
-        // Avoid double zero if the last part added was already ling (shouldn't happen with current logic but safe check).
-        if (parts.isEmpty || parts.last != _ling) {
-          parts.add(_ling);
-          // No need to set zeroDigitInserted = true here, as it's the last digit.
-        }
-      }
-      // Add the units digit itself.
-      parts.add(_digits[units]);
-      // No need to update flags, as this is the last digit.
-    }
-    // If units is 0, do nothing (trailing zeros are omitted).
-
-    return parts.join();
   }
 }

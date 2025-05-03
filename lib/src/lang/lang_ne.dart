@@ -7,175 +7,68 @@ import '../options/ne_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_ne}
-/// The Nepali language (Lang.NE) implementation for converting numbers to words.
+/// Converts numbers to Nepali words (`Lang.NE`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Nepali word representation following standard Nepali grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [NeOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers using the
-/// Nepali numbering system (Lakh, Crore, Arab, Kharb, Neel, Padma, Shankh).
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [NeOptions].
+/// Implements [Num2TextBase] for Nepali, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, and years.
+/// Uses the Nepali numbering system (Lakh, Crore, Arab, Kharb, etc.) with 3,2,2,... grouping.
+/// Customizable via [NeOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextNE implements Num2TextBase {
-  // --- Core Vocabulary ---
+  // --- Constants ---
+  static const String _zero = "शून्य"; // "zero"
+  static const String _point = "दशमलव"; // Decimal separator "."
+  static const String _comma = "अल्पविराम"; // Decimal separator ","
+  static const String _hundred = "सय"; // "hundred"
+  static const String _yearSuffixAD = "ईस्वी"; // AD/CE suffix
+  static const String _yearSuffixBC = "ई.पू."; // BC/BCE suffix
+  static const String _infinity = "अनन्त"; // "Infinity"
+  static const String _nan = "संख्या होइन"; // "Not a Number"
 
-  /// The Nepali word for zero ("शून्य").
-  static const String _zero = "शून्य";
-
-  /// The default word for the decimal separator ("दशमलव", for period/point).
-  static const String _point = "दशमलव";
-
-  /// The word for the decimal separator when comma is specified ("अल्पविराम").
-  static const String _comma = "अल्पविराम";
-
-  /// The Nepali word for hundred ("सय").
-  static const String _hundred = "सय";
-
-  // --- Special Values & Suffixes ---
-
-  /// Suffix for years AD/CE ("ईस्वी"). Added when `includeAD` is true for positive years.
-  static const String _yearSuffixAD = "ईस्वी";
-
-  /// Suffix for years BC/BCE ("ई.पू."). Added automatically for negative years in year format.
-  static const String _yearSuffixBC = "ई.पू.";
-
-  /// Word for infinity ("अनन्त").
-  static const String _infinity = "अनन्त";
-
-  /// Word for Not a Number ("संख्या होइन").
-  static const String _nan = "संख्या होइन";
-
-  /// List of Nepali words for numbers 0 through 99.
+  /// Pre-defined words for numbers 0-99.
   static const List<String> _wordsUnder100 = [
-    "शून्य",
-    "एक",
-    "दुई",
-    "तीन",
-    "चार",
-    "पाँच",
-    "छ",
-    "सात",
-    "आठ",
-    "नौ",
-    "दस",
-    "एघार",
-    "बाह्र",
-    "तेह्र",
-    "चौध",
-    "पन्ध्र",
-    "सोह्र",
-    "सत्र",
-    "अठार",
-    "उन्नाइस",
-    "बीस",
-    "एक्काइस",
-    "बाइस",
-    "तेइस",
-    "चौबीस",
-    "पच्चीस",
-    "छब्बीस",
-    "सत्ताइस",
-    "अठ्ठाइस",
-    "उनतीस",
-    "तीस",
-    "एकतीस",
-    "बत्तीस",
-    "तेत्तीस",
-    "चौँतीस",
-    "पैँतीस",
-    "छत्तीस",
-    "सैँतीस",
-    "अठतीस",
-    "उनचालीस",
+    "शून्य", "एक", "दुई", "तीन", "चार", "पाँच", "छ", "सात", "आठ", "नौ", "दस",
+    "एघार", "बाह्र", "तेह्र", "चौध", "पन्ध्र", "सोह्र", "सत्र", "अठार",
+    "उन्नाइस", "बीस",
+    "एक्काइस", "बाइस", "तेइस", "चौबीस", "पच्चीस", "छब्बीस", "सत्ताइस",
+    "अठ्ठाइस", "उनतीस", "तीस",
+    "एकतीस", "बत्तीस", "तेत्तीस", "चौँतीस", "पैँतीस", "छत्तीस", "सैँतीस",
+    "अठतीस", "उनचालीस",
     "चालीस",
-    "एकचालीस",
-    "बयालीस",
-    "त्रिचालीस",
-    "चवालीस",
-    "पैंतालिस",
-    "छयालीस",
-    "सतचालीस",
-    "अठचालीस",
-    "उनचास",
+    "एकचालीस", "बयालीस", "त्रिचालीस", "चवालीस", "पैंतालिस", "छयालीस", "सतचालीस",
+    "अठचालीस", "उनचास",
     "पचास",
-    "एकाउन्न",
-    "बाउन्न",
-    "त्रिपन्न",
-    "चौवन्न",
-    "पचपन्न",
-    "छपन्न",
-    "सन्ताउन्न",
+    "एकाउन्न", "बाउन्न", "त्रिपन्न", "चौवन्न", "पचपन्न", "छपन्न", "सन्ताउन्न",
     "अन्ठाउन्न",
-    "उनसाठी",
-    "साठी",
-    "एकसट्ठी",
-    "बयसट्ठी",
-    "त्रिसट्ठी",
-    "चौसट्ठी",
-    "पैँसट्ठी",
-    "छयसट्ठी",
-    "सड्सठी",
-    "अठसट्ठी",
-    "उनसत्तरी",
-    "सत्तरी",
-    "एकहत्तर",
-    "बहत्तर",
-    "त्रिहत्तर",
-    "चौहत्तर",
-    "पचहत्तर",
-    "छयहत्तर",
-    "सतहत्तर",
-    "अठहत्तर",
-    "उनासी",
-    "असी",
-    "एकासी",
-    "बयासी",
-    "त्रियासी",
-    "चौरासी",
-    "पचासी",
-    "छयासी",
-    "सतासी",
-    "अठासी",
+    "उनसाठी", "साठी",
+    "एकसट्ठी", "बयसट्ठी", "त्रिसट्ठी", "चौसट्ठी", "पैँसट्ठी", "छयसट्ठी",
+    "सड्सठी", "अठसठ्ठी",
+    "उनसत्तरी", "सत्तरी",
+    "एकहत्तर", "बहत्तर", "त्रिहत्तर", "चौहत्तर", "पचहत्तर", "छयहत्तर",
+    "सतहत्तर", "अठहत्तर",
+    "उनासी", "असी",
+    "एकासी", "बयासी", "त्रियासी", "चौरासी", "पचासी", "छयासी", "सतासी", "अठासी",
     "उनान्नब्बे",
     "नब्बे",
-    "एकानब्बे",
-    "बयानब्बे",
-    "त्रियानब्बे",
-    "चौरानब्बे",
-    "पन्चानब्बे",
-    "छयानब्बे",
-    "सन्तानब्बे",
-    "अन्ठानब्बे",
-    "उनान्सय", // 99
+    "एकानब्बे", "बयानब्बे", "त्रियानब्बे", "चौरानब्बे", "पन्चानब्बे",
+    "छयानब्बे", "सन्तानब्बे",
+    "अन्ठानब्बे", "उनान्सय", // 99
   ];
 
-  /// Defines the scale levels (thousand, lakh, crore, etc.) used in the Nepali numbering system.
-  /// Each map contains the power of 10 and the corresponding Nepali name.
-  /// Ordered from largest to smallest power for processing.
-  static const List<Map<String, dynamic>> _scales = [
-    {'power': 17, 'name': "शंख"}, // Shankh (10^17)
-    {'power': 15, 'name': "पद्म"}, // Padma (10^15)
-    {'power': 13, 'name': "नील"}, // Neel (10^13)
-    {'power': 11, 'name': "खर्ब"}, // Kharb (10^11)
-    {'power': 9, 'name': "अर्ब"}, // Arab (10^9)
-    {'power': 7, 'name': "करोड"}, // Crore (10^7)
-    {'power': 5, 'name': "लाख"}, // Lakh (10^5)
-    {'power': 3, 'name': "हजार"}, // Thousand (10^3)
-    // Note: Hundred (power 2) is handled separately within _convertInteger.
-  ];
+  // Note: _scales list was removed as it wasn't used in the provided code.
+  // The logic in _convertInteger uses a hardcoded list of scale names.
 
-  /// Processes the given number (int, double, BigInt, String, Decimal) and returns its Nepali word representation.
+  /// {@macro num2text_base_process}
+  /// Converts the given [number] into Nepali words.
   ///
-  /// - [number]: The number to convert. Handles various numeric types.
-  /// - [options]: Optional [NeOptions] to customize conversion (e.g., currency, year format).
-  /// - [fallbackOnError]: A custom string to return if conversion fails (e.g., for invalid input).
-  ///   If null, a default error message ([_nan]) is used.
+  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String`.
+  /// Uses [NeOptions] for customization (currency, year format, decimals, AD/BC).
+  /// Returns [fallbackOnError] or a default error message on failure.
   ///
-  /// Returns the number in Nepali words, or an error string if conversion is not possible.
+  /// @param number The number to convert.
+  /// @param options Optional [NeOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Nepali words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
@@ -183,39 +76,24 @@ class Num2TextNE implements Num2TextBase {
         options is NeOptions ? options : const NeOptions();
     final String errorFallback = fallbackOnError ?? _nan;
 
-    // Handle special double values immediately
     if (number is double) {
       if (number.isInfinite) {
-        String prefix = "";
-        if (number.isNegative) {
-          prefix = neOptions.negativePrefix;
-          // Ensure space after prefix if needed.
-          if (prefix.isNotEmpty && !prefix.endsWith(' ')) prefix += ' ';
-        }
+        String prefix =
+            number.isNegative ? ("${neOptions.negativePrefix.trim()} ") : "";
         return "$prefix$_infinity";
       }
-      if (number.isNaN) {
-        return errorFallback;
-      }
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    // Handle normalization failure (invalid input)
-    if (decimalValue == null) {
-      return errorFallback;
-    }
-
-    // Handle zero separately for clarity and specific formats
     if (decimalValue == Decimal.zero) {
       if (neOptions.currency) {
-        final currencyInfo = neOptions.currencyInfo;
-        // Ensure units are trimmed if they have leading/trailing spaces
-        return "${_zero.trim()} ${currencyInfo.mainUnitSingular.trim()}";
+        // e.g., "शून्य रुपैयाँ"
+        return "${_zero.trim()} ${neOptions.currencyInfo.mainUnitSingular.trim()}";
       } else {
-        // Year format doesn't need special handling for zero, unlike BC/AD
-        return _zero;
+        return _zero; // Standard "शून्य"
       }
     }
 
@@ -223,283 +101,266 @@ class Num2TextNE implements Num2TextBase {
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-
-    // --- Format-Specific Handling ---
+    // --- Dispatch based on format ---
     if (neOptions.format == Format.year) {
-      // Year format handles negativity internally with suffixes
+      // Year format handles negativity (BC suffix) internally.
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), neOptions);
     } else {
-      // Handle currency or standard number format
       if (neOptions.currency) {
         textResult = _handleCurrency(absValue, neOptions);
       } else {
         textResult = _handleStandardNumber(absValue, neOptions);
       }
-      // Apply negative prefix if needed for non-year formats
+      // Apply negative prefix for non-year formats.
       if (isNegative) {
-        String prefix = neOptions.negativePrefix;
-        // Ensure a space after the prefix if it doesn't have one
-        if (prefix.isNotEmpty && !prefix.endsWith(' ')) prefix += ' ';
-        textResult = "$prefix$textResult";
+        String prefix = neOptions.negativePrefix.trim();
+        textResult = "$prefix $textResult";
       }
     }
-
-    return textResult;
+    return textResult.trim(); // Ensure no leading/trailing spaces.
   }
 
-  /// Handles the conversion of a number when [Format.year] is specified.
+  /// Converts an integer year to Nepali words, applying specific rules and suffixes.
   ///
-  /// - [year]: The integer year value.
-  /// - [options]: The [NeOptions] containing formatting details like `includeAD`.
+  /// - Years 1100-1999 are formatted like "nineteen hundred ninety-nine".
+  /// - Other years use standard cardinal conversion.
+  /// - Appends BC/AD suffixes based on sign and options.
   ///
-  /// Returns the year in Nepali words, applying BC/AD suffixes as required.
+  /// @param year The integer year (can be negative for BC).
+  /// @param options Checks `includeAD` option.
+  /// @return The year in Nepali words (e.g., "उन्नाइस सय उनान्सय", "पाँच सय ई.पू.").
   String _handleYearFormat(int year, NeOptions options) {
     final bool isNegative = year < 0;
     final int absYear = isNegative ? -year : year;
 
-    if (absYear == 0) {
-      // While process() handles general zero, year 0 might be technically possible though uncommon.
-      return _zero;
-    }
+    if (absYear == 0) return _zero; // Year 0 is "शून्य".
 
     String yearText;
-    // Special case for "X hundred" years like 1900 -> "उन्नाइस सय"
-    if (absYear >= 1100 && absYear < 2000 && absYear % 100 == 0) {
-      yearText = "${_convertUnder100(absYear ~/ 100)} $_hundred";
+    // Specific handling for years 1100-1999 ("X सय Y").
+    if (absYear >= 1100 && absYear < 2000) {
+      int hundredsPart = absYear ~/ 100; // e.g., 19
+      int remainder = absYear % 100; // e.g., 99
+      yearText =
+          "${_convertUnder100(hundredsPart)} $_hundred"; // e.g., "उन्नाइस सय"
+      if (remainder > 0) {
+        yearText += " ${_convertUnder100(remainder)}"; // e.g., " उनान्सय"
+      }
     } else {
-      // Convert the absolute year value using the standard integer conversion
+      // Standard conversion for other years.
       yearText = _convertInteger(BigInt.from(absYear));
     }
 
-    // Append suffixes based on sign and options
+    // Append suffixes.
     if (isNegative) {
-      yearText += " $_yearSuffixBC";
+      yearText += " $_yearSuffixBC"; // Always add "ई.पू." for negative.
     } else if (options.includeAD) {
-      // Only add AD/CE suffix for positive years if explicitly requested
-      yearText += " $_yearSuffixAD";
+      yearText += " $_yearSuffixAD"; // Add "ईस्वी" only if option is set.
     }
 
     return yearText;
   }
 
-  /// Handles the conversion of a number into currency format (NPR).
+  /// Converts a non-negative [BigInt] integer into Nepali words using the 3,2,2,... grouping.
   ///
-  /// - [absValue]: The absolute (non-negative) [Decimal] value of the amount.
-  /// - [options]: The [NeOptions] containing currency details ([currencyInfo]).
+  /// Processes the number by taking the last 3 digits, then groups of 2 digits for
+  /// Hajar, Lakh, Crore, Arab, etc.
   ///
-  /// Returns the amount in Nepali words, including main ("रुपैयाँ") and subunit ("पैसा") parts.
+  /// @param n The non-negative integer.
+  /// @return The integer as Nepali words.
+  String _convertInteger(BigInt n) {
+    if (n < BigInt.zero) {
+      // Internal safeguard; negativity handled in `process`.
+      throw ArgumentError(
+          "Internal error: Cannot convert negative integer directly.");
+    }
+    if (n == BigInt.zero) return _zero;
+
+    final List<String> parts = []; // Stores words for each scale part.
+    final BigInt thousand = BigInt.from(1000);
+    final BigInt hundred = BigInt.from(100);
+
+    // --- Step 1: Handle the last 3 digits (0-999) ---
+    final int under1000Part = (n % thousand).toInt();
+    if (under1000Part > 0) {
+      parts.add(_convertUnder1000(under1000Part));
+    }
+    n = n ~/ thousand; // Move past the initial 3 digits.
+
+    // --- Step 2: Define scale names (Hajar, Lakh, Crore...) ---
+    // Order matches increasing powers with 2-digit grouping (10^3, 10^5, ...).
+    final List<String> scaleNames = [
+      "हजार", "लाख", "करोड", "अर्ब", "खर्ब", "नील", "पद्म", "शंख", "महाशंख",
+      "जल्ध", "मध्य",
+      "परार्ध" // Added more scales
+    ];
+    int scaleIndex = 0;
+
+    // --- Step 3: Process higher scales in groups of 2 digits ---
+    while (n > BigInt.zero) {
+      final int chunk = (n % hundred).toInt(); // Get the next 2-digit chunk.
+
+      if (chunk > 0) {
+        if (scaleIndex >= scaleNames.length) {
+          // Safeguard if number exceeds defined scales.
+          parts.insert(
+              0, _convertUnder100(chunk)); // Add chunk without scale name.
+          break;
+        }
+        final String chunkText =
+            _convertUnder100(chunk); // Convert the 2-digit chunk.
+        final String scaleName =
+            scaleNames[scaleIndex]; // Get the corresponding scale name.
+        // Insert "chunkText scaleName" at the beginning to build the result correctly.
+        parts.insert(0, "$chunkText $scaleName");
+      }
+
+      n = n ~/ hundred; // Move to the next 2 digits.
+      scaleIndex++; // Move to the next scale name.
+    }
+
+    // --- Step 4: Join parts ---
+    // Result is built from highest scale down to the initial under-1000 part.
+    return parts.join(" ").trim();
+  }
+
+  /// Converts an integer from 0 to 999 into Nepali words.
+  /// Handles hundreds correctly (e.g., "एक सय", "दुई सय").
+  ///
+  /// @param m The integer (0-999).
+  /// @return The number as Nepali words. Returns empty string if m is 0.
+  String _convertUnder1000(int m) {
+    if (m < 0 || m >= 1000) throw ArgumentError("Number must be 0-999: $m");
+    if (m == 0) return ""; // Zero within a larger number contributes nothing.
+
+    if (m < 100) {
+      return _convertUnder100(m); // Use the direct lookup for 0-99.
+    } else {
+      final int h = m ~/ 100; // Hundreds digit.
+      final int r = m % 100; // Remainder (0-99).
+      // Use "एक" for 100, convert digit otherwise.
+      final String hundredPrefix =
+          (h == 1) ? _wordsUnder100[1] : _convertUnder100(h);
+      String text = "$hundredPrefix $_hundred"; // e.g., "एक सय", "दुई सय"
+      if (r > 0) {
+        text += " ${_convertUnder100(r)}"; // Add remainder if non-zero.
+      }
+      return text;
+    }
+  }
+
+  /// Converts a non-negative [Decimal] to Nepali currency words (Rupees and Paisa).
+  ///
+  /// Uses [NeOptions.currencyInfo]. Rounds to 2 decimal places.
+  ///
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options.
+  /// @return Currency value as Nepali words.
   String _handleCurrency(Decimal absValue, NeOptions options) {
     final CurrencyInfo currencyInfo = options.currencyInfo;
-    // Nepalese Rupee has 100 paisa
-    final Decimal subunitMultiplier = Decimal.fromInt(100);
+    final Decimal subunitMultiplier =
+        Decimal.fromInt(100); // 100 Paisa = 1 Rupee.
 
     // Round to 2 decimal places for currency.
     final Decimal roundedValue = absValue.round(scale: 2);
 
-    // Split the value into main (Rupee) and subunit (Paisa) parts
-    final BigInt mainValue = roundedValue.truncate().toBigInt();
-    // Calculate fractional part carefully to avoid precision issues after rounding.
-    final Decimal fractionalPart =
-        (roundedValue - Decimal.fromBigInt(mainValue)).abs();
-    // Calculate the subunit value as an integer.
+    final BigInt mainValue = roundedValue.truncate().toBigInt(); // Rupees
+    // Calculate paisa carefully after rounding.
     final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).round(scale: 0).toBigInt();
+        (roundedValue.remainder(Decimal.one).abs() * subunitMultiplier)
+            .round(scale: 0)
+            .toBigInt();
 
     String mainText = "";
     String subUnitText = "";
 
-    // Convert the main (Rupee) part if it's greater than zero
+    // Convert Rupees part.
     if (mainValue > BigInt.zero) {
-      // Assumes CurrencyInfo provides trimmed unit names
+      // Trim potential spaces from currency unit names.
       mainText =
           "${_convertInteger(mainValue)} ${currencyInfo.mainUnitSingular.trim()}";
     }
 
-    // Convert the subunit (Paisa) part if it's greater than zero
+    // Convert Paisa part.
     if (subunitValue > BigInt.zero) {
-      // Ensure subUnitSingular is not null before accessing
-      final subUnitName = currencyInfo.subUnitSingular ?? '';
+      final subUnitName = currencyInfo.subUnitSingular?.trim() ?? '';
       if (subUnitName.isNotEmpty) {
-        subUnitText = "${_convertInteger(subunitValue)} ${subUnitName.trim()}";
+        subUnitText = "${_convertInteger(subunitValue)} $subUnitName";
       }
     }
 
-    // Combine the parts with the separator ("र") if both exist
+    // Combine parts using separator "र" if both exist.
     if (mainText.isNotEmpty && subUnitText.isNotEmpty) {
       final separator =
-          currencyInfo.separator?.trim() ?? ''; // Default to empty if null
+          currencyInfo.separator?.trim() ?? 'र'; // Default separator "र".
       return "$mainText $separator $subUnitText";
     } else if (mainText.isNotEmpty) {
-      return mainText; // Only main part
+      return mainText; // Only Rupees.
     } else if (subUnitText.isNotEmpty) {
-      return subUnitText; // Only subunit part
+      return subUnitText; // Only Paisa.
     } else {
-      // Should only happen if input was 0.00, handled in `process`, but safe fallback.
+      // Case of 0.00 after rounding.
       return "$_zero ${currencyInfo.mainUnitSingular.trim()}";
     }
   }
 
-  /// Handles the conversion of a standard number (integer or decimal).
+  /// Converts a non-negative standard [Decimal] number to Nepali words.
   ///
-  /// - [absValue]: The absolute (non-negative) [Decimal] value of the number.
-  /// - [options]: The [NeOptions] containing decimal separator preference.
+  /// Handles integer and fractional parts. Fractional part read digit by digit.
+  /// Removes trailing zeros from the fractional part before converting.
   ///
-  /// Returns the number in Nepali words, including the decimal part if present.
+  /// @param absValue Absolute decimal value.
+  /// @param options Used for `decimalSeparator`.
+  /// @return Number as Nepali words.
   String _handleStandardNumber(Decimal absValue, NeOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
-    // Calculate fractional part carefully
     final Decimal fractionalPart =
         (absValue - Decimal.fromBigInt(integerPart)).abs();
 
-    String integerWords;
-    // Handle case like 0.5 -> "शून्य दशमलव पाँच"
-    if (integerPart == BigInt.zero && fractionalPart > Decimal.zero) {
-      integerWords = _zero;
-    } else {
-      // Convert the integer part using the main integer conversion logic
-      integerWords = _convertInteger(integerPart);
-    }
+    // Convert integer part. Use "शून्य" if integer is 0 but fraction exists (e.g., 0.5).
+    String integerWords =
+        (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
+            ? _zero
+            : _convertInteger(integerPart);
 
     String fractionalWords = '';
-    // Convert the fractional part if it exists
+    // Process fractional part if it exists.
     if (fractionalPart > Decimal.zero) {
-      // Determine the correct decimal separator word
-      String separatorWord;
-      switch (options.decimalSeparator) {
-        case DecimalSeparator.comma:
-          separatorWord = _comma;
-          break;
-        case DecimalSeparator.period:
-        case DecimalSeparator.point: // Treat point same as period
-        default: // Default to period
-          separatorWord = _point;
-          break;
-      }
+      String separatorWord =
+          (options.decimalSeparator == DecimalSeparator.comma)
+              ? _comma
+              : _point; // Default to "दशमलव".
 
-      // Get the digits after the decimal point as a string
-      // `toString()` usually gives the most accurate representation including trailing zeros if significant.
-      final String absString = absValue.toString();
-      final int decimalPointIndex = absString.indexOf('.');
-      String fractionalDigits = "";
-      if (decimalPointIndex != -1) {
-        fractionalDigits = absString.substring(decimalPointIndex + 1);
-        // Nepali generally doesn't read trailing zeros, so remove them.
-        // Example: 1.50 -> "एक दशमलव पाँच"
-        fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
-      }
+      // Get fractional digits string.
+      String fractionalDigits = absValue.toString().split('.').last;
 
-      // Convert each digit individually
+      // Remove trailing zeros (e.g., 1.50 -> 1.5 -> "एक दशमलव पाँच").
+      fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
+
+      // Convert remaining digits individually.
       if (fractionalDigits.isNotEmpty) {
         List<String> digitWords = fractionalDigits.split('').map((digit) {
           final int? digitInt = int.tryParse(digit);
-          // Look up the word for the digit (0-9)
           return (digitInt != null && digitInt >= 0 && digitInt <= 9)
-              ? _wordsUnder100[digitInt]
-              : '?'; // Fallback for unexpected characters
+              ? _convertUnder100(digitInt) // Use lookup for 0-9
+              : '?'; // Fallback
         }).toList();
-
         fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
-      } else {
-        // If removing trailing zeros leaves no fractional digits, the number is effectively an integer.
-        // No need to add separator or digits.
-        fractionalWords = '';
       }
+      // If removing zeros left nothing, fractionalWords remains empty.
     }
 
-    // Combine integer and fractional parts
-    return integerWords + fractionalWords;
+    return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a non-negative integer ([BigInt]) into its Nepali word representation.
-  /// This is the core recursive function handling scales (Lakh, Crore, etc.).
+  /// Converts an integer from 0 to 99 into its Nepali word using the lookup table.
   ///
-  /// - [n]: The non-negative integer to convert.
-  ///
-  /// Returns the integer in Nepali words. Throws [ArgumentError] if input is negative.
-  String _convertInteger(BigInt n) {
-    if (n < BigInt.zero) {
-      // This function should only be called with non-negative numbers.
-      throw ArgumentError(
-        "Cannot convert negative integer directly. Use process() for negative numbers.",
-      );
-    }
-    if (n == BigInt.zero) return _zero;
-
-    // Base case: Handle numbers less than 100 directly
-    if (n < BigInt.from(100)) {
-      return _convertUnder100(n.toInt());
-    }
-
-    BigInt remaining = n;
-    final List<String> parts = [];
-
-    // --- Process Scales (Crore, Lakh, Thousand, etc.) ---
-    for (final scale in _scales) {
-      final int power = scale['power'];
-      final String name = scale['name'];
-      final BigInt powerOf10 = BigInt.from(10).pow(power);
-
-      if (remaining >= powerOf10) {
-        // Calculate how many of this scale unit are present
-        // For Lakh and Crore, the count is modulo 100, otherwise it's the full quotient.
-        BigInt count;
-        if (power == 5 || power == 7) {
-          // Lakh (10^5) and Crore (10^7) work in pairs (like Indian numbering system)
-          // But the _scales are processed individually. We need the amount *of this scale*.
-          // Example: 12345678 -> 1 Crore, 23 Lakh, 45 Thousand, 678
-          // When processing Crore (power 7): remaining = 12345678, count = 12345678 / 10^7 = 1
-          // When processing Lakh (power 5): remaining = 2345678, count = 2345678 / 10^5 = 23
-          // When processing Thousand (power 3): remaining = 45678, count = 45678 / 10^3 = 45
-          count = remaining ~/ powerOf10;
-        } else {
-          // For other scales (Arab, Kharb, etc.), the count is also the full quotient.
-          count = remaining ~/ powerOf10;
-        }
-
-        // Update the remainder
-        remaining %= powerOf10;
-
-        // Recursively convert the count for this scale
-        String countText = _convertInteger(count);
-        parts.add("$countText $name");
-      }
-    }
-
-    // --- Process Remainder (0-999) ---
-    if (remaining > BigInt.zero) {
-      String remainderText;
-      // Handle hundreds part if present
-      if (remaining >= BigInt.from(100)) {
-        int hundredCount = (remaining ~/ BigInt.from(100)).toInt();
-        // Use "ek" for one hundred.
-        remainderText =
-            "${(hundredCount == 1) ? _wordsUnder100[1] : _convertUnder100(hundredCount)} $_hundred";
-        BigInt lastTwo = remaining % BigInt.from(100);
-        // Handle tens/units part if present
-        if (lastTwo > BigInt.zero) {
-          remainderText += " ${_convertUnder100(lastTwo.toInt())}";
-        }
-      } else {
-        // Handle numbers 1-99
-        remainderText = _convertUnder100(remaining.toInt());
-      }
-      parts.add(remainderText);
-    }
-
-    // Join all parts with spaces
-    return parts.join(" ");
-  }
-
-  /// Converts an integer between 0 and 99 into its Nepali word representation.
-  ///
-  /// - [n]: The integer to convert (must be >= 0 and < 100).
-  ///
-  /// Returns the corresponding Nepali word from the [_wordsUnder100] list.
-  /// Throws [ArgumentError] if the number is out of the valid range.
+  /// @param n The integer (0-99).
+  /// @throws ArgumentError if n is out of range.
+  /// @return The corresponding Nepali word.
   String _convertUnder100(int n) {
     if (n < 0 || n >= 100) {
-      throw ArgumentError("Number must be between 0 and 99 (inclusive): $n");
+      throw ArgumentError("Number must be between 0 and 99: $n");
     }
     return _wordsUnder100[n];
   }

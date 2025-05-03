@@ -7,440 +7,351 @@ import '../options/ms_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_ms}
-/// The Malay language (`Lang.MS`) implementation for converting numbers to words.
+/// Converts numbers to Malay words (`Lang.MS`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Malay word representation following standard Malay grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [MsOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers using the
-/// short scale system (juta, bilion, trilion, etc.).
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [MsOptions].
+/// Implements [Num2TextBase] for Malay, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, and years.
+/// Uses the short scale system (juta, bilion, etc.).
+/// Features special Malay word forms like "seribu", "seratus", "sebelas", "X belas".
+/// Customizable via [MsOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextMS implements Num2TextBase {
   // --- Constants ---
+  static const String _point = "perpuluhan"; // Decimal separator "."
+  static const String _comma = "koma"; // Decimal separator ","
+  static const String _yearSuffixBC = "SM"; // Before Christ ("Sebelum Masihi")
+  static const String _yearSuffixAD = "M"; // AD/CE ("Masihi")
+  static const String _notANumber = "Bukan Nombor"; // Default NaN message
+  static const String _infinity = "Infiniti";
+  static const String _negativeInfinity = "Negatif Infiniti";
 
-  /// The word for the decimal separator when using a period (`.`) ("perpuluhan").
-  static const String _point = "perpuluhan";
-
-  /// The word for the decimal separator when using a comma (`,`) ("koma").
-  static const String _comma = "koma";
-
-  /// The suffix for negative years ("Sebelum Masihi" - Before Christ).
-  static const String _yearSuffixBC = "SM";
-
-  /// The suffix for positive years ("Masihi" - AD/CE). Added only if [MsOptions.includeAD] is true.
-  static const String _yearSuffixAD = "M";
-
-  /// Word forms for digits 0-9.
+  /// Digits 0-9.
   static const List<String> _wordsUnits = [
-    "sifar", // 0
-    "satu", // 1
-    "dua", // 2
-    "tiga", // 3
-    "empat", // 4
-    "lima", // 5
-    "enam", // 6
-    "tujuh", // 7
-    "lapan", // 8
-    "sembilan", // 9
+    "sifar",
+    "satu",
+    "dua",
+    "tiga",
+    "empat",
+    "lima",
+    "enam",
+    "tujuh",
+    "lapan",
+    "sembilan",
   ];
 
-  /// The word for ten ("sepuluh").
-  static const String _ten = "sepuluh";
+  static const String _ten = "sepuluh"; // 10
+  static const String _eleven = "sebelas"; // 11
+  static const String _hundred = "seratus"; // 100 (prefix form)
+  static const String _thousand = "seribu"; // 1000 (prefix form)
 
-  /// The word for eleven ("sebelas").
-  static const String _eleven = "sebelas";
-
-  /// The word for one hundred ("seratus").
-  static const String _hundred = "seratus";
-
-  /// The word for one thousand ("seribu").
-  static const String _thousand = "seribu";
-
-  /// Word forms for tens 20-90 ("dua puluh", "tiga puluh", ...).
-  /// Index corresponds to the tens digit (index 2 = 20, index 9 = 90).
+  /// Tens 20-90 ("dua puluh", ...). Index matches tens digit.
   static const List<String> _wordsTens = [
-    "", // 0
-    "", // 10 - Handled by _ten
-    "dua puluh", // 20
-    "tiga puluh", // 30
-    "empat puluh", // 40
-    "lima puluh", // 50
-    "enam puluh", // 60
-    "tujuh puluh", // 70
-    "lapan puluh", // 80
-    "sembilan puluh", // 90
+    "",
+    "",
+    "dua puluh",
+    "tiga puluh",
+    "empat puluh",
+    "lima puluh",
+    "enam puluh",
+    "tujuh puluh",
+    "lapan puluh",
+    "sembilan puluh",
   ];
 
-  /// Scale words (million, billion, etc.) using the short scale system.
-  /// Key: Scale level index (2 = 10^6, 3 = 10^9...).
-  /// Value: Scale word name.
+  /// Scale words (short scale). Key: Scale level (2=10^6, 3=10^9,...).
   static const Map<int, String> _scaleWords = {
-    2: "juta", // Million (10^6)
-    3: "bilion", // Billion (10^9)
-    4: "trilion", // Trillion (10^12)
-    5: "kuadrilion", // Quadrillion (10^15)
-    6: "kuintilion", // Quintillion (10^18)
-    7: "sekstilion", // Sextillion (10^21)
-    8: "septilion", // Septillion (10^24)
-    // Add more if needed
+    2: "juta",
+    3: "bilion",
+    4: "trilion",
+    5: "kuadrilion",
+    6: "kuintilion",
+    7: "sekstilion",
+    8: "septilion",
   };
 
   /// {@macro num2text_base_process}
-  /// Converts the given [number] into its Malay word representation.
+  /// Converts the given [number] into Malay words.
   ///
-  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String` inputs.
-  /// Uses [MsOptions] to customize behavior like currency formatting ([MsOptions.currency], [MsOptions.currencyInfo]),
-  /// year formatting ([Format.year]), decimal separator ([MsOptions.decimalSeparator]),
-  /// and negative prefix ([MsOptions.negativePrefix]).
-  /// If `options` is not an instance of [MsOptions], default settings are used.
+  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String`.
+  /// Uses [MsOptions] for customization (currency, year format, decimals, AD/BC).
+  /// Returns [fallbackOnError] or a default error message on failure.
   ///
-  /// Returns the word representation (e.g., "seratus dua puluh tiga", "negatif sepuluh perpuluhan lima", "satu juta").
-  /// If the input is invalid (`null`, `NaN`, `Infinity`, non-numeric string), it returns
-  /// [fallbackOnError] if provided, otherwise a default error message like "Bukan Nombor".
+  /// @param number The number to convert.
+  /// @param options Optional [MsOptions] settings.
+  /// @param fallbackOnError Optional error string.
+  /// @return The number as Malay words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Malay-specific options, using defaults if none are provided.
     final MsOptions msOptions =
         options is MsOptions ? options : const MsOptions();
+    final String errorDefault = fallbackOnError ?? _notANumber;
 
-    // Handle special non-finite double values early.
     if (number is double) {
-      if (number.isInfinite) {
-        return number.isNegative
-            ? "Negatif Infiniti"
-            : "Infiniti"; // Localized infinity
-      }
-      if (number.isNaN)
-        return fallbackOnError ?? "Bukan Nombor"; // Not a Number
+      if (number.isInfinite)
+        return number.isNegative ? _negativeInfinity : _infinity;
+      if (number.isNaN) return errorDefault;
     }
 
-    // Normalize the input to a Decimal for precise calculations.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorDefault;
 
-    // Return error if normalization failed (invalid input type or format).
-    if (decimalValue == null) return fallbackOnError ?? "Bukan Nombor";
-
-    // Handle the specific case of zero.
     if (decimalValue == Decimal.zero) {
-      if (msOptions.currency) {
-        // Currency format for zero (e.g., "sifar ringgit"). Use singular unit name.
-        return "${_wordsUnits[0]} ${msOptions.currencyInfo.mainUnitSingular}";
-      } else {
-        // Standard "sifar". Also covers year 0.
-        return _wordsUnits[0];
-      }
+      return msOptions.currency
+          ? "${_wordsUnits[0]} ${msOptions.currencyInfo.mainUnitSingular}" // e.g., "sifar ringgit"
+          : _wordsUnits[0]; // "sifar"
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic.
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-    // --- Dispatch based on format options ---
+    // Dispatch based on format.
     if (msOptions.format == Format.year) {
-      // Year format needs the integer part.
-      // Years are read as cardinal numbers.
+      // Year format handles negativity (BC suffix) internally.
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), msOptions);
-      // Note: Year format handles BC/AD suffixes internally, so negative prefix is not added here.
     } else {
-      // Handle currency or standard number format.
       if (msOptions.currency) {
         textResult = _handleCurrency(absValue, msOptions);
       } else {
         textResult = _handleStandardNumber(absValue, msOptions);
       }
-      // Prepend the negative prefix if applicable (not for years).
+      // Apply negative prefix for non-year formats.
       if (isNegative) {
         textResult = "${msOptions.negativePrefix} $textResult";
       }
     }
-    return textResult; // Trimming happens within helper functions if needed.
+    return textResult.trim(); // Ensure no leading/trailing spaces.
   }
 
-  /// Formats an integer as a calendar year, optionally adding BC/AD suffixes.
+  /// Converts an integer year to Malay words, optionally adding suffixes.
+  ///
   /// Years are read as cardinal numbers.
   ///
-  /// [year]: The integer year value (can be negative).
-  /// [options]: Malay options, checks `includeAD`.
-  /// Returns the year in words, e.g., "seribu sembilan ratus sembilan puluh sembilan", "lima ratus SM".
+  /// @param year The integer year (can be negative for BC).
+  /// @param options Checks `includeAD` option.
+  /// @return The year in words (e.g., "seribu sembilan ratus lapan puluh empat", "lima ratus SM").
   String _handleYearFormat(int year, MsOptions options) {
     final bool isNegative = year < 0;
     final int absYear = isNegative ? -year : year;
-    // Handle year 0.
-    if (absYear == 0) return _wordsUnits[0]; // "sifar"
+
+    if (absYear == 0) return _wordsUnits[0]; // Year 0 is "sifar".
 
     // Convert the absolute year value as a standard integer.
     String yearText = _convertInteger(BigInt.from(absYear));
 
-    // Append era suffixes based on the year's sign and options.
+    // Append suffixes.
     if (isNegative) {
       yearText += " $_yearSuffixBC"; // Always add "SM" for negative years.
     } else if (options.includeAD) {
-      // Add "M" for positive years *only if* requested via options.
-      yearText += " $_yearSuffixAD";
+      yearText += " $_yearSuffixAD"; // Add "M" only if option is set.
     }
     return yearText;
   }
 
-  /// Formats a [Decimal] value as a currency amount in words.
-  /// Handles main units (e.g., Ringgit) and subunits (e.g., Sen).
-  /// Uses the separator defined in [CurrencyInfo] (defaults to space if null).
-  /// Rounding is NOT applied here by default, relies on BaseOptions.round.
+  /// Converts a non-negative [Decimal] to Malay currency words.
   ///
-  /// [absValue]: The non-negative currency amount.
-  /// [options]: Malay options containing currency details.
-  /// Returns the currency amount in words, e.g., "satu ringgit dan lima puluh sen", "dua ringgit".
+  /// Uses [MsOptions.currencyInfo]. Separates main and subunits (e.g., ringgit, sen).
+  ///
+  /// @param absValue Absolute currency value.
+  /// @param options Formatting options.
+  /// @return Currency value as Malay words.
   String _handleCurrency(Decimal absValue, MsOptions options) {
     final CurrencyInfo currencyInfo = options.currencyInfo;
-
-    // Note: Rounding is not explicitly done here, assuming it's handled upstream if options.round is true.
+    // Assume 2 decimal places for subunits (e.g., sen). Rounding is not applied here by default.
     final Decimal valueToConvert = absValue;
-    // Separate main and subunit values.
     final BigInt mainValue = valueToConvert.truncate().toBigInt();
     final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Calculate subunit value (e.g., 0.50 becomes 50).
-    final BigInt subunitValue =
-        (fractionalPart * Decimal.fromInt(100)).truncate().toBigInt();
+    // Calculate subunit value (e.g., cents). Assumes 100 subunits per main unit.
+    final BigInt subunitValue = (fractionalPart.abs() * Decimal.fromInt(100))
+        .round(scale: 0)
+        .toBigInt();
 
-    // Convert main value part. Handle case where main is zero but subunits exist.
-    String mainText = (mainValue == BigInt.zero && subunitValue > BigInt.zero)
-        ? _wordsUnits[0] // "sifar" if main is zero but subunits exist.
-        : _convertInteger(mainValue); // Convert non-zero main value.
+    List<String> parts = [];
 
-    // Get the main unit name (typically singular in Malay).
-    String mainUnitName =
-        currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+    // --- Main Unit Part ---
+    if (mainValue > BigInt.zero) {
+      String mainText = _convertInteger(mainValue);
+      // Use singular/plural - Malay typically uses singular form after number.
+      String mainUnitName = currencyInfo.mainUnitSingular;
+      parts.add("$mainText $mainUnitName");
+    }
 
-    // Combine main number and unit name.
-    String result = '$mainText $mainUnitName';
-
-    // Add subunit part if it exists and a subunit name is provided.
+    // --- Subunit Part ---
     if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      // Convert subunit value.
       String subunitText = _convertInteger(subunitValue);
-      // Get subunit name (typically singular).
       String subUnitName = currencyInfo.subUnitSingular!;
-      // Get separator (e.g., "dan"), add spaces if needed, default to space if null.
-      String separator =
-          currencyInfo.separator != null ? " ${currencyInfo.separator!} " : " ";
-      // Append separator and subunit part.
-      result += '$separator$subunitText $subUnitName';
-    }
-    // Handle the case of exactly zero value (0.00).
-    else if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
-      result = "${_wordsUnits[0]} $mainUnitName"; // e.g., "sifar ringgit"
+      String separator = "";
+      // Add separator if main part exists.
+      if (parts.isNotEmpty) {
+        separator = currencyInfo.separator?.isNotEmpty ?? false
+            ? " ${currencyInfo.separator!} " // Use custom separator with spaces.
+            : " "; // Default separator is just a space.
+      }
+      parts.add("$separator$subunitText $subUnitName");
     }
 
-    return result;
+    // --- Zero Case ---
+    // If both parts are zero (original value was 0 or rounded to 0).
+    if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
+      return "${_wordsUnits[0]} ${currencyInfo.mainUnitSingular}"; // e.g., "sifar ringgit"
+    }
+
+    return parts.join("").trim(); // Join parts (already includes separator).
   }
 
-  /// Formats a standard [Decimal] number (non-currency, non-year) into words.
-  /// Handles both the integer and fractional parts.
-  /// The fractional part is read digit by digit after the separator word ("perpuluhan" or "koma").
+  /// Converts a non-negative standard [Decimal] number to Malay words.
   ///
-  /// [absValue]: The non-negative number.
-  /// [options]: Malay options, used for `decimalSeparator`.
-  /// Returns the number in words, e.g., "seratus dua puluh tiga perpuluhan empat lima".
+  /// Handles integer and fractional parts. Fractional part read digit by digit.
+  ///
+  /// @param absValue The non-negative number.
+  /// @param options Used for `decimalSeparator`.
+  /// @return Number in words (e.g., "seratus dua puluh tiga perpuluhan empat lima").
   String _handleStandardNumber(Decimal absValue, MsOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
 
-    // Convert the integer part. Use "sifar" if integer is zero but there's a fractional part.
+    // Convert integer part. Use "sifar" if integer is 0 but fraction exists (e.g., 0.5).
     String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _wordsUnits[0] // Handle 0.5 -> "sifar perpuluhan..."
+            ? _wordsUnits[0]
             : _convertInteger(integerPart);
 
     String fractionalWords = '';
-    // Process fractional part only if it's greater than zero.
+    // Process fractional part if it's greater than zero.
     if (fractionalPart > Decimal.zero) {
-      // Determine the separator word.
-      String separatorWord;
-      switch (options.decimalSeparator) {
-        case DecimalSeparator.comma:
-          separatorWord = _comma;
-          break;
-        case DecimalSeparator.point:
-        case DecimalSeparator.period:
-        default: // Default to point/"perpuluhan" for Malay.
-          separatorWord = _point;
-          break;
-      }
+      // Determine separator word.
+      String separatorWord =
+          (options.decimalSeparator == DecimalSeparator.comma)
+              ? _comma
+              : _point; // Default to "perpuluhan".
 
-      // Get fractional digits as string.
+      // Get fractional digits string.
       String fractionalDigitsString = absValue.toString().split('.').last;
 
-      // --- Trailing Zero Logic ---
-      // Check if the default separator is used (point/period or null).
-      // bool useDefaultSeparator = (options.decimalSeparator == null ||
-      //     options.decimalSeparator == DecimalSeparator.point ||
-      //     options.decimalSeparator == DecimalSeparator.period);
-
-      // This logic attempts to remove trailing zeros ONLY if using the default separator.
-      // It seems overly complex and potentially incorrect. A simpler approach is often preferred:
-      // just read the digits present in the string representation after the decimal point.
-      // Standard Decimal.toString() often handles reasonable representations.
-      // Let's simplify: Read digits as they appear. If trailing zeros are unwanted,
-      // the input Decimal should ideally be constructed without them or normalized beforehand.
-      // Example: Decimal.parse("1.50").toString() is "1.50". Reading this gives "...lima sifar".
-      // Decimal.parse("1.5").toString() is "1.5". Reading this gives "...lima".
-
-      // Simpler approach: Read all digits present.
+      // Convert each digit to its word form.
       List<String> digitWords = fractionalDigitsString.split('').map((digit) {
-        final int digitInt = int.parse(digit);
-        // Map the digit to its word using _wordsUnits.
-        return _wordsUnits[digitInt];
+        return _wordsUnits[int.parse(digit)];
       }).toList();
 
-      // Combine separator and digit words.
       fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
     }
-    // This block seems intended for cases like Decimal('1.0') - integer with scale > 0.
-    // However, fractionalPart > Decimal.zero check already handles this. This block can be removed.
-    // else if (integerPart > BigInt.zero && absValue.scale > 0 && absValue.isInteger) {
-    //   // No fractional words needed for integers.
-    // }
 
-    // Combine integer and fractional parts, trimming whitespace.
     return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a non-negative [BigInt] integer into its Malay word representation.
-  /// Breaks the number into 3-digit chunks and applies scale words (ribu, juta, bilion, etc.).
-  /// Handles special cases like "seribu" (1000).
+  /// Converts a non-negative [BigInt] integer into Malay words.
   ///
-  /// [n]: The non-negative integer to convert. Must not be negative.
-  /// Returns the integer in words, e.g., "satu juta dua ratus tiga puluh empat ribu lima ratus enam puluh tujuh".
+  /// Uses 3-digit chunking and applies scale words (ribu, juta, bilion, etc.).
+  /// Handles special cases like "seribu".
+  ///
+  /// @param n The non-negative integer.
+  /// @return The integer as Malay words.
   String _convertInteger(BigInt n) {
-    if (n == BigInt.zero) return _wordsUnits[0]; // Base case: zero.
-    // Ensure input is non-negative.
+    if (n == BigInt.zero) return _wordsUnits[0];
     if (n < BigInt.zero)
       throw ArgumentError("Negative numbers handled externally");
 
-    // Special case for exactly one thousand.
-    if (n == BigInt.from(1000)) return _thousand; // "seribu"
+    // Special case for 1000.
+    if (n == BigInt.from(1000)) return _thousand;
 
-    // Handle numbers less than 1000 directly using the chunk converter.
     if (n < BigInt.from(1000)) return _convertChunk(n.toInt());
 
-    List<String> parts = []; // Stores word parts for each scale level.
+    List<String> parts = [];
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleLevel = 0; // 0=units chunk, 1=thousands chunk, 2=millions chunk...
+    int scaleLevel = 0; // 0: units, 1: thousands, 2: millions,...
     BigInt remaining = n;
 
-    // Process the number in chunks of 1000 from right to left.
     while (remaining > BigInt.zero) {
-      // Get the current 3-digit chunk (0-999).
-      BigInt chunk = remaining % oneThousand;
-      remaining ~/= oneThousand; // Move to the next higher chunk.
+      BigInt chunk = remaining % oneThousand; // Current 0-999 chunk.
+      remaining ~/= oneThousand;
 
-      // Only process non-zero chunks.
       if (chunk > BigInt.zero) {
         String chunkText;
-        String? scaleWordSuffix; // The scale word like "ribu", "juta".
+        String? scaleWordSuffix; // e.g., "ribu", "juta"
 
-        // Determine scale word and format the chunk text.
+        // Determine scale word and format chunk text.
         if (scaleLevel == 1) {
-          // Thousands level
+          // Thousands scale
           if (chunk == BigInt.one) {
-            // Special case: "seribu" (one thousand). Chunk text is replaced entirely.
+            // Use "seribu" directly instead of converting chunk "satu".
             chunkText = _thousand;
-            scaleWordSuffix = null; // "ribu" is included in "_thousand".
+            scaleWordSuffix = null; // "ribu" is part of "seribu".
           } else {
-            // 2000-999000: Convert chunk + "ribu".
             chunkText = _convertChunk(chunk.toInt());
             scaleWordSuffix = "ribu";
           }
         } else if (scaleLevel > 1) {
           // Millions, billions, etc.
-          // Convert the chunk normally.
           chunkText = _convertChunk(chunk.toInt());
-          // Get the scale word (juta, bilion...).
           scaleWordSuffix = _scaleWords[scaleLevel];
-          if (scaleWordSuffix == null) {
-            // Safety check for numbers larger than defined scales.
+          if (scaleWordSuffix == null)
             throw ArgumentError("Number too large (scale level $scaleLevel)");
-          }
         } else {
           // Base chunk (scaleLevel 0)
-          // Convert the chunk normally, no scale suffix.
           chunkText = _convertChunk(chunk.toInt());
           scaleWordSuffix = null;
         }
 
-        // Combine the chunk text and its scale suffix (if any).
+        // Combine chunk text and scale suffix.
         String currentPart = chunkText;
         if (scaleWordSuffix != null) {
           currentPart += " $scaleWordSuffix";
         }
-        parts.add(currentPart); // Add the complete part for this scale level.
+        parts.add(currentPart);
       }
-      scaleLevel++; // Move to the next scale level.
+      scaleLevel++;
     }
 
-    // Join the parts in reverse order (highest scale first) with spaces.
+    // Join parts from highest scale down.
     return parts.reversed.join(' ').trim();
   }
 
-  /// Converts a number between 0 and 999 into its Malay word representation.
-  /// Handles special cases "seratus", "sepuluh", "sebelas", and "X belas".
+  /// Converts an integer from 0 to 999 into Malay words.
   ///
-  /// [n]: The number to convert (must be 0-999).
-  /// Returns the chunk in words, e.g., "seratus", "dua puluh satu", "tiga belas".
+  /// Handles hundreds, tens, units. Includes special forms:
+  /// "seratus", "sepuluh", "sebelas", "X belas".
+  ///
+  /// @param n The integer chunk (0-999).
+  /// @return The chunk as Malay words, or empty string if n is 0.
   String _convertChunk(int n) {
-    // Return empty string for zero within a larger number context.
     if (n == 0) return "";
     if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
-    List<String> words = []; // Stores word parts for this chunk.
+    List<String> words = [];
     int remainder = n;
 
-    // --- Process Hundreds ---
+    // --- Hundreds ---
     if (remainder >= 100) {
-      // Handle "seratus" (100) vs "dua ratus", "tiga ratus", etc.
+      // Use "seratus" for 100, "dua ratus" etc. otherwise.
       words.add((remainder ~/ 100 == 1)
           ? _hundred
           : "${_wordsUnits[remainder ~/ 100]} ratus");
-      remainder %= 100; // Update remainder (0-99).
+      remainder %= 100;
     }
 
-    // --- Process Tens and Units (0-99) ---
+    // --- Tens and Units ---
     if (remainder > 0) {
-      // Add space if hundreds were processed. (Malay often omits 'dan' here).
-      // if (words.isNotEmpty) { /* Optional: add space or "dan" */ }
-
       if (remainder < 10) {
-        // 1-9: Use unit words directly.
-        words.add(_wordsUnits[remainder]);
+        words.add(_wordsUnits[remainder]); // 1-9
       } else if (remainder == 10) {
-        // 10: Special word "sepuluh".
-        words.add(_ten);
+        words.add(_ten); // 10
       } else if (remainder == 11) {
-        // 11: Special word "sebelas".
-        words.add(_eleven);
+        words.add(_eleven); // 11
       } else if (remainder < 20) {
-        // 12-19: Use "X belas" structure.
-        words.add(
-            "${_wordsUnits[remainder % 10]} belas"); // e.g., "dua belas", "tiga belas"
+        // 12-19: "dua belas", "tiga belas", ...
+        words.add("${_wordsUnits[remainder % 10]} belas");
       } else {
-        // 20-99: Use "X puluh Y" structure.
-        words.add(
-            _wordsTens[remainder ~/ 10]); // Add "dua puluh", "tiga puluh", etc.
+        // 20-99: "dua puluh", "dua puluh satu", ...
+        words.add(_wordsTens[remainder ~/ 10]); // Add the tens part.
         if (remainder % 10 > 0) {
-          // Add the unit word if present.
-          words.add(_wordsUnits[remainder % 10]);
+          words.add(
+              _wordsUnits[remainder % 10]); // Add the unit part if non-zero.
         }
       }
     }
 
-    // Join the collected word parts (hundreds, tens, units) with spaces.
     return words.join(' ');
   }
 }

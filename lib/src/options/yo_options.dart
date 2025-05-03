@@ -3,10 +3,6 @@ import 'base_options.dart';
 
 /// Options specific to the Yoruba (`Lang.YO`) language version.
 class YoOptions extends BaseOptions {
-  // Note: Yoruba uses a complex vigesimal (base-20) counting system.
-  // Era notation (AD/BC) is not standard in traditional counting.
-  // final bool includeAD; // Not included by default.
-
   /// The prefix word used for negative numbers when *not* using [Format.year].
   /// Defaults to `"òdì"` (opposite/negative).
   final String negativePrefix;

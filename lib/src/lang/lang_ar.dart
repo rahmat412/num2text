@@ -7,710 +7,791 @@ import '../options/base_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_ar}
-/// The Arabic language (Lang.AR) implementation for converting numbers to words.
+/// Converts numbers to Arabic words (`Lang.AR`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Arabic word representation following standard Arabic grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [ArOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (using standard Arabic scale).
-/// This implementation considers grammatical gender, which is crucial in Arabic.
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [ArOptions], particularly the `gender` option.
+/// Implements [Num2TextBase] for Arabic, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, years, and large numbers
+/// (up to Septillion using standard short scale names like Milyūn, Milyār).
+/// Incorporates Arabic grammatical rules, including gender agreement and polarity
+/// (number gender opposing noun gender for 3-10 in counted items).
+/// Behavior is customizable via [ArOptions] (e.g., `gender`, `currencyInfo`).
+/// Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextAR implements Num2TextBase {
-  // --- Constants for Arabic words and symbols ---
-  static const String _zero = "صفر"; // Zero
-  static const String _point = "نقطة"; // Decimal point (period) word
-  static const String _comma = "فاصلة"; // Decimal point (comma) word
-  static const String _and = "و"; // Conjunction "and"
+  // --- Constants ---
+  static const String _zero = "صفر";
+  static const String _point = "نقطة"; // Word for decimal point (.).
+  static const String _comma = "فاصلة"; // Word for decimal separator (,).
+  static const String _and = "و"; // Conjunction "and".
   static const String _yearSuffixBC =
-      "ق.م"; // Suffix for BC years (Qabl al-Mīlād)
-  static const String _yearSuffixAD = "م"; // Suffix for AD/CE years (Mīlādī)
-  static const String _infinity = "لانهاية"; // Infinity
-  static const String _negativeInfinity = "سالب لانهاية"; // Negative infinity
-  static const String _notANumber = "ليس رقماً"; // Not a Number (NaN)
+      "ق.م"; // Suffix for Before Christ (Qabl al-Mīlād).
+  static const String _yearSuffixAD = "م"; // Suffix for Anno Domini (Mīlādī).
+  static const String _infinity = "لانهاية"; // Word for Infinity.
+  static const String _negativeInfinity =
+      "سالب لانهاية"; // Word for Negative Infinity.
+  static const String _notANumber =
+      "ليس رقماً"; // Default fallback for invalid input.
 
-  // --- Number words (Masculine form) ---
+  // Number words 0-19 (Masculine forms).
   static const List<String> _wordsUnder20Masc = [
-    "صفر", // 0
-    "واحد", // 1
-    "اثنان", // 2
-    "ثلاثة", // 3
-    "أربعة", // 4
-    "خمسة", // 5
-    "ستة", // 6
-    "سبعة", // 7
-    "ثمانية", // 8
-    "تسعة", // 9
-    "عشرة", // 10
-    "أحد عشر", // 11
-    "اثنا عشر", // 12
-    "ثلاثة عشر", // 13
-    "أربعة عشر", // 14
-    "خمسة عشر", // 15
-    "ستة عشر", // 16
-    "سبعة عشر", // 17
-    "ثمانية عشر", // 18
-    "تسعة عشر", // 19
+    "صفر",
+    "واحد",
+    "اثنان",
+    "ثلاثة",
+    "أربعة",
+    "خمسة",
+    "ستة",
+    "سبعة",
+    "ثمانية",
+    "تسعة",
+    "عشرة",
+    "أحد عشر",
+    "اثنا عشر",
+    "ثلاثة عشر",
+    "أربعة عشر",
+    "خمسة عشر",
+    "ستة عشر",
+    "سبعة عشر",
+    "ثمانية عشر",
+    "تسعة عشر",
   ];
-
-  // --- Number words (Feminine form) ---
-  // Note the agreement changes for 1, 2, and 3-10 compared to masculine.
+  // Number words 0-19 (Feminine forms).
   static const List<String> _wordsUnder20Fem = [
-    "صفر", // 0
-    "واحدة", // 1
-    "اثنتان", // 2
-    "ثلاث", // 3
-    "أربع", // 4
-    "خمس", // 5
-    "ست", // 6
-    "سبع", // 7
-    "ثمان", // 8
-    "تسع", // 9
-    "عشر", // 10
-    "إحدى عشرة", // 11
-    "اثنتا عشرة", // 12
-    "ثلاث عشرة", // 13
-    "أربع عشرة", // 14
-    "خمس عشرة", // 15
-    "ست عشرة", // 16
-    "سبع عشرة", // 17
-    "ثماني عشرة", // 18
-    "تسع عشرة", // 19
+    "صفر",
+    "واحدة",
+    "اثنتان",
+    "ثلاث",
+    "أربع",
+    "خمس",
+    "ست",
+    "سبع",
+    "ثمان",
+    "تسع",
+    "عشر",
+    "إحدى عشرة",
+    "اثنتا عشرة",
+    "ثلاث عشرة",
+    "أربع عشرة",
+    "خمس عشرة",
+    "ست عشرة",
+    "سبع عشرة",
+    "ثماني عشرة",
+    "تسع عشرة",
   ];
-
-  // --- Tens words (20-90) ---
+  // Tens words (20-90).
   static const List<String> _wordsTens = [
-    "", // 0 (unused)
-    "", // 10 (handled by under 20 list)
-    "عشرون", // 20
-    "ثلاثون", // 30
-    "أربعون", // 40
-    "خمسون", // 50
-    "ستون", // 60
-    "سبعون", // 70
-    "ثمانون", // 80
-    "تسعون", // 90
+    "",
+    "",
+    "عشرون",
+    "ثلاثون",
+    "أربعون",
+    "خمسون",
+    "ستون",
+    "سبعون",
+    "ثمانون",
+    "تسعون",
   ];
-
-  // --- Hundreds words ---
+  // Hundreds words.
   static const Map<int, String> _wordsHundreds = {
-    1: "مئة", // 100
-    2: "مئتان", // 200
-    3: "ثلاثمئة", // 300
-    4: "أربعمئة", // 400
-    5: "خمسمئة", // 500
-    6: "ستمئة", // 600
-    7: "سبعمئة", // 700
-    8: "ثمانمئة", // 800
-    9: "تسعمئة", // 900
+    1: "مئة",
+    2: "مئتان",
+    3: "ثلاثمئة",
+    4: "أربعمئة",
+    5: "خمسمئة",
+    6: "ستمئة",
+    7: "سبعمئة",
+    8: "ثمانمئة",
+    9: "تسعمئة",
   };
-
-  // --- Scale words (Thousands, Millions, etc.) ---
-  // Defines singular (s), dual (d), plural 3-10 (p3_10), and plural 11+ (p11+) forms.
-  // Arabic uses different noun forms depending on the preceding number.
+  // Scale words (Short Scale: Thousand, Million, Billion...) with grammatical forms.
+  // s: singular, d: dual, p3_10: plural (for counts 3-10), p11+: form for counts 11+ (accusative singular).
   static const Map<int, Map<String, String>> _scaleForms = {
-    // 10^3
-    1: {'s': 'ألف', 'd': 'ألفان', 'p3_10': 'آلاف', 'p11+': 'ألفًا'}, // Thousand
-    // 10^6
+    1: {
+      's': 'ألف',
+      'd': 'ألفان',
+      'p3_10': 'آلاف',
+      'p11+': 'ألفًا'
+    }, // 10^3 Thousand
     2: {
       's': 'مليون',
       'd': 'مليونان',
       'p3_10': 'ملايين',
       'p11+': 'مليونًا'
-    }, // Million
-    // 10^9
+    }, // 10^6 Million
     3: {
       's': 'مليار',
       'd': 'ملياران',
       'p3_10': 'مليارات',
       'p11+': 'مليارًا'
-    }, // Billion
-    // 10^12
+    }, // 10^9 Billion
     4: {
       's': 'تريليون',
       'd': 'تريليونان',
       'p3_10': 'تريليونات',
       'p11+': 'تريليونًا'
-    }, // Trillion
-    // 10^15
+    }, // 10^12 Trillion
     5: {
       's': 'كوادريليون',
       'd': 'كوادريليونان',
       'p3_10': 'كوادريليونات',
-      'p11+': 'كوادريليونًا',
-    }, // Quadrillion
-    // 10^18
+      'p11+': 'كوادريليونًا'
+    }, // 10^15 Quadrillion
     6: {
       's': 'كوينتيليون',
       'd': 'كوينتيليونان',
       'p3_10': 'كوينتيليونات',
-      'p11+': 'كوينتيليونًا',
-    }, // Quintillion
-    // 10^21
+      'p11+': 'كوينتيليونًا'
+    }, // 10^18 Quintillion
     7: {
       's': 'سكستيليون',
       'd': 'سكستيليونان',
       'p3_10': 'سكستيليونات',
-      'p11+': 'سكستيليونًا',
-    }, // Sextillion
-    // 10^24
+      'p11+': 'سكستيليونًا'
+    }, // 10^21 Sextillion
     8: {
       's': 'سبتيليون',
       'd': 'سبتيليونان',
       'p3_10': 'سبتيليونات',
-      'p11+': 'سبتيليونًا',
-    }, // Septillion
-    // Higher scales can be added here if needed.
+      'p11+': 'سبتيليونًا'
+    }, // 10^24 Septillion
   };
 
-  /// Processes the given [number] into Arabic words based on the provided [options].
+  /// Processes the given [number] into Arabic words.
+  ///
+  /// {@template num2text_process_intro}
+  /// Normalizes input (`int`, `double`, `BigInt`, `Decimal`, `String`) to [Decimal].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_options}
+  /// Uses [ArOptions] for customization (currency, year format, gender, decimals, AD/BC).
+  /// Defaults apply if [options] is null or not [ArOptions].
+  /// {@endtemplate}
+  ///
+  /// {@template num2text_process_errors}
+  /// Handles `Infinity`, `NaN`. Returns [fallbackOnError] or default error string on failure.
+  /// {@endtemplate}
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Arabic-specific options, defaulting if necessary.
     final ArOptions arOptions =
         options is ArOptions ? options : const ArOptions();
+    final String errorFallback = fallbackOnError ?? _notANumber;
 
-    // Handle special double values first.
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? _negativeInfinity : _infinity;
-      }
-      if (number.isNaN) {
-        return fallbackOnError ??
-            _notANumber; // Use fallback or default NaN message.
-      }
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal for precision.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
-    if (decimalValue == null) {
-      // If normalization fails (e.g., invalid string), return fallback or default message.
-      return fallbackOnError ?? _notANumber;
-    }
+    if (decimalValue == null) return errorFallback;
 
-    // Handle zero separately.
     if (decimalValue == Decimal.zero) {
-      if (arOptions.currency) {
-        // Zero with currency requires the currency unit name.
-        return "$_zero ${_getCurrencyForm(BigInt.zero, arOptions.gender, arOptions.currencyInfo, true)}";
-      } else {
-        // Just "صفر".
-        return _zero;
-      }
+      return arOptions.currency
+          // Use default masculine gender for zero currency unit form
+          ? "$_zero ${_getCurrencyForm(BigInt.zero, Gender.masculine, arOptions.currencyInfo, true)}"
+          : _zero;
     }
 
-    // Determine sign and get the absolute value.
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-
     String textResult;
-    // Route to specific handlers based on options.
+
     if (arOptions.format == Format.year) {
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), arOptions);
     } else {
-      if (arOptions.currency) {
-        textResult = _handleCurrency(absValue, arOptions);
-      } else {
-        textResult = _handleStandardNumber(absValue, arOptions);
-      }
-      // Prepend negative prefix if applicable.
+      // Determine the effective gender context for the conversion.
+      // Currency gender depends on the unit name (e.g., Lira=fem, Riyal=masc). Standard numbers use option gender.
+      Gender effectiveGender = arOptions.currency
+          ? ((arOptions.currencyInfo.mainUnitSingular == "ليرة")
+              ? Gender.feminine
+              : Gender.masculine) // Simplified logic based on known currencies
+          : arOptions.gender;
+
+      textResult = arOptions.currency
+          ? _handleCurrency(absValue, arOptions)
+          // Pass the determined context gender to standard number conversion
+          : _handleStandardNumber(absValue, arOptions, effectiveGender);
+
       if (isNegative) {
         textResult = "${arOptions.negativePrefix} $textResult";
       }
     }
-
-    // Return the final trimmed result.
-    return textResult.trim();
+    return textResult.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Converts an integer year value into Arabic words, handling BC/AD suffixes.
-  String _handleYearFormat(int year, ArOptions options) {
-    final bool isNegative = year < 0; // BC year
-    final int absYear = isNegative ? -year : year;
-    final BigInt bigAbsYear = BigInt.from(absYear);
-
-    String yearText;
-
-    if (absYear == 0) {
-      // Technically no year 0, but handle the input case.
-      yearText = _zero;
-    } else {
-      // Years are typically treated as masculine numbers.
-      yearText = _convertInteger(bigAbsYear, Gender.masculine, true);
-    }
-
-    // Add suffixes based on sign and options.
-    if (isNegative) {
-      // This check seems potentially redundant or incomplete. Kept as is.
-      if (absYear == 1 && yearText == _wordsUnder20Masc[1]) {}
-      yearText += " $_yearSuffixBC"; // Add BC suffix
-    } else if (options.includeAD && absYear > 0) {
-      yearText += " $_yearSuffixAD"; // Add AD/CE suffix if requested
-    }
-
-    return yearText;
-  }
-
-  /// Converts a positive decimal value into Arabic currency words.
-  String _handleCurrency(Decimal absValue, ArOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final Gender gender = options.gender; // Default gender from options.
-    final bool round = options.round;
-    final int decimalPlaces = 2; // Standard currency decimal places.
-    final Decimal subunitMultiplier =
-        Decimal.fromInt(100); // For converting fraction to subunits.
-
-    // Round the value if requested, otherwise use the original value.
-    Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).truncate().toBigInt();
-
-    // Handle zero amount.
-    if (mainValue == BigInt.zero && subunitValue == BigInt.zero) {
-      // Return "zero" plus the appropriate currency form for zero.
-      return "$_zero ${_getCurrencyForm(mainValue, gender, currencyInfo, true)}";
-    }
-
-    // Determine gender for the number part, potentially overridden by currency type.
-    Gender numberGender = gender;
-
-    // Convert main value to words.
-    String mainText = _convertInteger(mainValue, numberGender, false);
-    // Get the correct grammatical form of the main currency unit.
-    String mainUnitName =
-        _getCurrencyForm(mainValue, numberGender, currencyInfo, true);
-
-    // Special handling for specific currencies like 'ليرة' (Lira), which is feminine.
-    if (currencyInfo.mainUnitSingular == "ليرة") {
-      numberGender = Gender.feminine; // Lira requires feminine number forms.
-      mainText = _convertInteger(
-          mainValue, numberGender, false); // Reconvert with feminine gender.
-      mainUnitName = _getCurrencyForm(
-        mainValue,
-        numberGender,
-        currencyInfo,
-        true,
-      ); // Get feminine currency form.
-
-      // For 1 or 2 Lira, the number word itself is often omitted ("ليرة واحدة" -> "ليرة").
-      if (mainValue == BigInt.one || mainValue == BigInt.two) {
-        mainText = "";
-      }
-    }
-
-    // Combine main value text and unit name.
-    String result = (mainText.isNotEmpty && mainUnitName.isNotEmpty)
-        ? '$mainText $mainUnitName' // e.g., "خمسة ريالات"
-        : (mainText.isEmpty
-            ? mainUnitName
-            : mainText); // Handles cases like "ليرة" (1 lira)
-
-    // If main value is zero but subunits exist, clear the main part result.
-    if (mainValue == BigInt.zero && subunitValue > BigInt.zero) {
-      result = "";
-    }
-
-    // Handle subunits if they exist.
-    if (subunitValue > BigInt.zero) {
-      Gender subunitNumberGender;
-      String? subUnitSingular = currencyInfo.subUnitSingular;
-
-      // Special gender agreement rules for "هللة" (Halala).
-      if (subUnitSingular == "هللة") {
-        if (subunitValue == BigInt.one || subunitValue == BigInt.two) {
-          subunitNumberGender = Gender.feminine; // 1, 2 هللة agree feminine.
-        } else if (subunitValue >= BigInt.from(3) &&
-            subunitValue <= BigInt.from(10)) {
-          subunitNumberGender =
-              Gender.masculine; // 3-10 هللة agree masculine (polarity).
-        } else {
-          subunitNumberGender = Gender.feminine; // 11+ هللة agree feminine.
-        }
-      } else {
-        // Default subunit gender is masculine unless specified otherwise.
-        subunitNumberGender = Gender.masculine;
-      }
-
-      // Convert subunit value to words using determined gender.
-      String subunitText =
-          _convertInteger(subunitValue, subunitNumberGender, false);
-
-      // Get the correct grammatical form of the subunit name (usually treated as masculine).
-      String subUnitName =
-          _getCurrencyForm(subunitValue, Gender.masculine, currencyInfo, false);
-
-      // Omit number words "one" or "two" for subunits, similar to main units sometimes.
-      if (subunitValue == BigInt.one || subunitValue == BigInt.two) {
-        subunitText = "";
-      }
-
-      // Special override for Lira's subunit (Qirsh).
-      if (currencyInfo.mainUnitSingular == "ليرة") {
-        subUnitName = _getCurrencyForm(
-          subunitValue,
-          Gender.masculine, // Qirsh is masculine.
-          currencyInfo,
-          false, // Indicate it's a subunit.
-          forceQirsh: true, // Ensure 'قرش' forms are used.
-        );
-      }
-
-      // Combine subunit text and name.
-      String separator =
-          currencyInfo.separator ?? ""; // Separator like "و" (and).
-      String subunitPart = (subunitText.isNotEmpty && subUnitName.isNotEmpty)
-          ? '$subunitText $subUnitName' // e.g., "خمسة قروش"
-          : (subunitText.isEmpty
-              ? subUnitName
-              : subunitText); // Handles "قرش" (1 qirsh)
-
-      // Append subunit part to the main result with separator if needed.
-      if (mainValue > BigInt.zero && separator.isNotEmpty) {
-        result += ' $separator$subunitPart'; // e.g., "result و subunitPart"
-      } else {
-        // Append directly or with a space if result was previously empty.
-        result += (result.isEmpty ? '' : ' ') + subunitPart;
-      }
-    }
-
-    // Final cleanup: trim and normalize spacing.
-    return result.trim().replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  /// Converts a positive decimal value into standard Arabic number words (non-currency).
-  String _handleStandardNumber(Decimal absValue, ArOptions options) {
-    // Separate integer and fractional parts.
+  /// Converts a positive [Decimal] to standard Arabic cardinal words, including decimals.
+  ///
+  /// Converts integer part via [_convertInteger], passing the contextual [gender].
+  /// Appends fractional part read digit-by-digit after the separator ("نقطة" or "فاصلة").
+  /// Decimal digits typically use masculine forms.
+  ///
+  /// @param absValue Positive number.
+  /// @param options [ArOptions] for decimal separator word.
+  /// @param gender The grammatical gender context ([Gender.masculine] or [Gender.feminine]).
+  /// @return Number formatted as Arabic words.
+  String _handleStandardNumber(
+      Decimal absValue, ArOptions options, Gender gender) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
 
-    // Determine gender for the integer part.
-    Gender numberGender = options.gender;
-
-    // Convert integer part to words. If integer is zero but fraction exists, write "صفر".
-    String integerWords =
+    // Convert integer part. applyPolarity=false as it's a standalone number.
+    final String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
             ? _zero
-            : _convertInteger(integerPart, numberGender, false);
+            : _convertInteger(integerPart, gender, applyPolarity: false);
 
     String fractionalWords = '';
-    // Handle fractional part if it exists.
-    if (fractionalPart > Decimal.zero) {
-      String separatorWord;
-      // Choose the separator word based on options.
-      switch (options.decimalSeparator) {
-        case DecimalSeparator.point:
-        case DecimalSeparator.period:
-          separatorWord = _point; // "نقطة"
-          break;
-        case DecimalSeparator.comma:
-        default:
-          separatorWord = _comma; // "فاصلة"
-          break;
-      }
+    if (fractionalPart > Decimal.zero && !absValue.isInteger) {
+      String separatorWord =
+          (options.decimalSeparator == DecimalSeparator.point ||
+                  options.decimalSeparator == DecimalSeparator.period)
+              ? _point
+              : _comma; // Default is comma.
 
-      // Convert fractional part to string and extract digits after the decimal point.
+      // Get fractional digits, remove trailing zeros.
       String decimalString = absValue.toString();
       String fractionalDigits =
           decimalString.contains('.') ? decimalString.split('.').last : '';
-      // Remove trailing zeros from the fractional part.
       fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
 
-      // If there are significant fractional digits left:
       if (fractionalDigits.isNotEmpty) {
-        // Convert each digit individually to its masculine word form.
+        // Convert each digit individually, typically using masculine form.
         List<String> digitWords = fractionalDigits.split('').map((digit) {
           final int? digitInt = int.tryParse(digit);
           return (digitInt != null && digitInt >= 0 && digitInt <= 9)
               ? _wordsUnder20Masc[
-                  digitInt] // Use masculine form for digits after point.
-              : '?'; // Placeholder for invalid digits.
+                  digitInt] // Digits usually read with masculine words.
+              : '?';
         }).toList();
-
-        // Combine the digit words with the separator.
-        if (digitWords.isNotEmpty) {
-          fractionalWords =
-              ' $separatorWord ${digitWords.join(' ')}'; // e.g., " فاصلة واحد اثنان"
-        }
-      } else if (integerPart > BigInt.zero && !absValue.isInteger) {
-        // This condition seems potentially redundant or incomplete. Kept as is.
-        // It might have been intended to handle cases like "123.00" where the fractional part becomes empty after removing trailing zeros.
+        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
       }
     }
-
-    // Combine integer and fractional parts.
     return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a non-negative BigInt into Arabic words, handling gender and scale.
-  /// [isYear] affects some grammatical rules (though less critical in this version).
-  String _convertInteger(BigInt n, Gender gender, bool isYear) {
+  /// Converts an integer year to Arabic words.
+  ///
+  /// Years are treated as cardinal numbers (masculine, no polarity rule applied).
+  /// Appends AD/BC suffixes based on [ArOptions.includeAD].
+  ///
+  /// @param year The integer year.
+  /// @param options Formatting options.
+  /// @return The year as Arabic words.
+  String _handleYearFormat(int year, ArOptions options) {
+    final bool isNegative = year < 0;
+    final int absYear = isNegative ? -year : year;
+
+    // Convert year as a standard masculine number, no polarity applied.
+    String yearText = (absYear == 0)
+        ? _zero
+        : _convertInteger(BigInt.from(absYear), Gender.masculine,
+            applyPolarity: false, isYear: true);
+
+    // Append era suffixes if needed.
+    if (isNegative)
+      yearText += " $_yearSuffixBC";
+    else if (options.includeAD && absYear > 0) yearText += " $_yearSuffixAD";
+
+    return yearText;
+  }
+
+  /// Converts a positive [Decimal] value to Arabic currency words.
+  ///
+  /// Applies grammatical rules: gender polarity (number vs. noun for 3-10),
+  /// construct state (dropping final 'n' on duals like مئتا, ألفا).
+  /// Uses [ArOptions.currencyInfo] for unit names and rules.
+  ///
+  /// @param absValue The positive currency amount.
+  /// @param options [ArOptions] with currency info and rounding preference.
+  /// @return The currency value formatted as Arabic words.
+  String _handleCurrency(Decimal absValue, ArOptions options) {
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    // Subunit calculation assumes 100 subunits per unit.
+    final BigInt subVal =
+        ((val - val.truncate()) * Decimal.fromInt(100)).truncate().toBigInt();
+
+    if (mainVal == BigInt.zero && subVal == BigInt.zero) {
+      // Zero currency uses default masculine form.
+      return "$_zero ${_getCurrencyForm(mainVal, Gender.masculine, info, true)}";
+    }
+
+    // Determine the grammatical gender of the *nouns* (units).
+    Gender mainNounGender = (info.mainUnitSingular == "ليرة")
+        ? Gender.feminine
+        : Gender.masculine; // e.g., Lira=fem, Riyal=masc
+    Gender subNounGender = (info.subUnitSingular == "هللة")
+        ? Gender.feminine
+        : Gender.masculine; // e.g., Halala=fem, Qirsh=masc
+
+    String mainPart = "";
+    if (mainVal > BigInt.zero) {
+      String mainUnitName = _getCurrencyForm(mainVal, mainNounGender, info,
+          true); // Get correct unit form based on count.
+      // Convert the number, applying polarity based on the main noun's gender.
+      String numberText =
+          _convertInteger(mainVal, mainNounGender, applyPolarity: true).trim();
+
+      // Apply construct state (idaafa) for duals preceding the noun.
+      if (numberText == "مئتان")
+        numberText = "مئتا"; // Drop ن
+      else if (numberText == "ألفان")
+        numberText = "ألفا"; // Drop ن
+      else if (numberText == "مليونان") numberText = "مليونا"; // Drop ن
+      // Add other dual scale forms if needed (e.g., مليار -> مليارا).
+
+      // Handle special cases for 1 and 2, and numbers ending in 1 or 2.
+      if (mainVal == BigInt.one) {
+        mainPart =
+            '$mainUnitName $numberText'; // Noun + Adjective: ريال سعودي واحد
+      } else if (mainVal == BigInt.two &&
+          mainUnitName == _getDefinedDualForm(info, true)) {
+        mainPart =
+            mainUnitName; // Use defined dual form directly: ريالان سعوديان
+      } else if (mainVal % BigInt.from(100) == BigInt.one &&
+          mainVal > BigInt.from(100)) {
+        // Special structure for X01: Number(X00) + SingularUnit + "wa" + Number(1)
+        BigInt hundredsVal = mainVal - BigInt.one;
+        // Convert hundreds part (no polarity), unit gender context.
+        String hundredsText =
+            _convertInteger(hundredsVal, mainNounGender, applyPolarity: false)
+                .trim();
+        // Convert the 'one' part (no polarity), unit gender context.
+        String oneText =
+            _convertInteger(BigInt.one, mainNounGender, applyPolarity: false)
+                .trim();
+        // Get singular unit name for the hundreds part (e.g., 'ريال').
+        String singularUnitName =
+            _getCurrencyForm(BigInt.from(100), mainNounGender, info, true);
+        mainPart =
+            '$hundredsText $singularUnitName $_and$oneText'; // e.g., مئة ريال سعودي وواحد
+      } else if (mainVal % BigInt.from(100) == BigInt.two &&
+          mainVal > BigInt.from(100)) {
+        // Special structure for X02: Number(X00) + SingularUnit + "wa" + Number(2)
+        BigInt hundredsVal = mainVal - BigInt.two;
+        String hundredsText =
+            _convertInteger(hundredsVal, mainNounGender, applyPolarity: false)
+                .trim();
+        String twoText =
+            _convertInteger(BigInt.two, mainNounGender, applyPolarity: false)
+                .trim();
+        String singularUnitName =
+            _getCurrencyForm(BigInt.from(100), mainNounGender, info, true);
+        mainPart =
+            '$hundredsText $singularUnitName $_and$twoText'; // e.g., مئة ريال سعودي واثنان
+      } else {
+        // Standard structure: Number + Unit Name
+        mainPart = '$numberText $mainUnitName';
+      }
+    }
+
+    String subPart = "";
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      String subUnitName = _getCurrencyForm(
+          subVal, subNounGender, info, false); // Get correct subunit form.
+      // Convert subunit number, applying polarity based on subunit noun's gender.
+      String numberText =
+          _convertInteger(subVal, subNounGender, applyPolarity: true).trim();
+
+      // Construct state unlikely for standard subunits, but check if needed.
+
+      // Handle special cases for 1 and 2 subunits.
+      if (subVal == BigInt.one) {
+        subPart = '$subUnitName $numberText'; // Noun + Adjective: هللة واحدة
+      } else if (subVal == BigInt.two &&
+          subUnitName == _getDefinedDualForm(info, false)) {
+        subPart = subUnitName; // Use defined dual form directly: هللتان
+      } else {
+        // Standard structure: Number + Unit Name
+        subPart = '$numberText $subUnitName';
+      }
+    }
+
+    // Combine main and subunit parts with the separator.
+    String result = mainPart.trim();
+    if (result.isNotEmpty && subPart.isNotEmpty) {
+      String effectiveSeparator = info.separator ?? _and;
+      // Ensure separator has spaces.
+      if (effectiveSeparator.trim() == _and) {
+        result += ' $effectiveSeparator${subPart.trim()}';
+      } else {
+        result += ' ${effectiveSeparator.trim()} ${subPart.trim()}';
+      }
+    } else if (subPart.isNotEmpty) {
+      result = subPart.trim(); // Only subunit exists.
+    }
+
+    return result.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  /// Converts a non-negative integer ([BigInt]) into Arabic words.
+  ///
+  /// Handles gender agreement and polarity based on the context ([targetNounGender], [applyPolarity]).
+  /// Uses short scale (thousand, million, billion...).
+  /// `isYear` flag disables specific grammatical features not used for years.
+  /// `isCountingScale` flag indicates the number is counting a scale word (e.g., 'three' in 'three million'), affecting internal polarity application.
+  ///
+  /// @param n Non-negative integer.
+  /// @param targetNounGender The gender of the noun being counted (influences number word choice/polarity).
+  /// @param applyPolarity If true, applies gender polarity for numbers 3-10 (number gender opposes noun gender). Set false for standalone numbers or years.
+  /// @param isYear If true, indicates conversion is for a year (disables some rules).
+  /// @param isCountingScale If true, indicates the number counts a scale word (e.g., 'three' million).
+  /// @return Integer as Arabic words.
+  String _convertInteger(BigInt n, Gender targetNounGender,
+      {required bool applyPolarity,
+      bool isYear = false,
+      bool isCountingScale = false}) {
     if (n == BigInt.zero) return _zero;
-    // Ensure input is non-negative for internal logic.
-    if (n < BigInt.zero)
-      throw ArgumentError("Negative input to _convertInteger");
+    if (n < BigInt.zero) throw ArgumentError("Negative input: $n");
 
-    // Select the base word list (0-19) based on gender.
-    final List<String> baseWords =
-        (gender == Gender.feminine) ? _wordsUnder20Fem : _wordsUnder20Masc;
+    // Determine the required grammatical gender for the *number word itself*.
+    Gender numberWordGender =
+        targetNounGender; // Default: number matches noun/context.
 
-    List<String> parts =
-        []; // Stores parts of the number string (e.g., "million part", "thousand part").
-    BigInt currentN = n; // The remaining number to process.
+    // Apply gender polarity rule (number opposes noun gender) for 3-10 when counting things.
+    if (applyPolarity &&
+        !isCountingScale &&
+        n >= BigInt.from(3) &&
+        n <= BigInt.from(10)) {
+      numberWordGender = (targetNounGender == Gender.masculine)
+          ? Gender.feminine
+          : Gender.masculine;
+    }
+    // Adjust gender for standalone numbers (applyPolarity is false).
+    else if (!applyPolarity && !isCountingScale) {
+      // For standalone 1, 2, 11+, number matches context gender.
+      // For standalone 3-10, number is usually masculine (with ة) unless context is feminine.
+      if (n >= BigInt.from(3) && n <= BigInt.from(10)) {
+        // Use feminine form (no ة) only if context (targetNounGender) is explicitly feminine.
+        numberWordGender = (targetNounGender == Gender.feminine)
+            ? Gender.feminine
+            : Gender.masculine;
+      }
+      // No change needed for 1, 2, 11+ here, default matching context is correct.
+    }
+    // Gender determination when counting scale words (isCountingScale=true) is handled below.
 
-    // Handle numbers less than 100 directly.
-    if (currentN < BigInt.from(100)) {
-      return _convertChunk(currentN.toInt(), gender, baseWords);
+    // Select the base word list (masculine or feminine) based on the determined *number word gender*.
+    final List<String> baseWords = (numberWordGender == Gender.feminine)
+        ? _wordsUnder20Fem
+        : _wordsUnder20Masc;
+
+    // --- Conversion Logic ---
+    if (n < BigInt.from(100)) {
+      // Handle numbers 0-99 using the determined number gender.
+      return _convertChunk(n.toInt(), numberWordGender, baseWords);
+    }
+    if (n < BigInt.from(1000)) {
+      // Handle 100-999, passing determined number gender for the chunk, and original noun gender for context.
+      return _convertHundredsAndBelow(n.toInt(), numberWordGender, baseWords,
+          targetNounGender, applyPolarity);
     }
 
-    // Handle numbers less than 1000 directly.
-    if (currentN < BigInt.from(1000)) {
-      return _convertHundredsAndBelow(currentN.toInt(), gender, baseWords);
-    }
-
-    // Process larger numbers by scale levels (thousands, millions, etc.).
+    // --- Scale Handling (Thousands, Millions, etc.) ---
+    List<String> parts = []; // Stores parts like "ثلاثة ملايين", "وخمسمئة ألف".
+    BigInt currentN = n; // Remaining value to convert.
+    // Process scales from largest to smallest defined.
     List<int> scaleLevels = _scaleForms.keys.toList()
-      ..sort((a, b) => b.compareTo(a)); // Process largest scale first.
-    bool firstScalePartProcessed =
-        false; // Tracks if we've added the first scale part (to handle adding "و").
+      ..sort((a, b) => b.compareTo(a));
+    bool firstPart = true; // Flag to handle adding "و" correctly.
 
     for (int scaleLevel in scaleLevels) {
-      // Calculate the value of this scale level (1000, 1_000_000, etc.).
-      final scaleValue = BigInt.from(10).pow(scaleLevel * 3);
-
+      final scaleValue = BigInt.from(10)
+          .pow(scaleLevel * 3); // Value of the scale (1000, 1M, 1B...).
       if (currentN >= scaleValue) {
-        // How many of this scale unit are there?
-        BigInt count = currentN ~/ scaleValue;
-        // What's the remainder?
-        currentN %= scaleValue;
+        BigInt count = currentN ~/
+            scaleValue; // How many of this scale unit (e.g., 3 for 3 million).
+        currentN %= scaleValue; // Update remainder.
 
-        // Determine the gender for the count itself based on Arabic grammar rules (polarity for 3-10).
-        Gender countGender =
+        // Determine gender for the *count* number (e.g., the 'three' in 'three million').
+        // Scale nouns (million, billion) are masculine. Apply polarity: 3-10 count uses feminine form.
+        Gender countWordGender =
             (count >= BigInt.from(3) && count <= BigInt.from(10))
-                ? Gender.masculine
-                : gender;
-        // Convert the count number to words.
-        String countText = _convertInteger(count, countGender, isYear);
+                ? Gender.feminine
+                : Gender.masculine;
 
-        // Get the correct grammatical form of the scale word (e.g., "ألف", "آلاف", "ألفًا").
+        // Convert the count number itself. No further polarity needed *inside* this conversion.
+        String countText = _convertInteger(count, countWordGender,
+            applyPolarity: false, isCountingScale: true);
+        // Get the appropriate grammatical form of the scale word based on the count.
         String scaleWord = _getScaleWord(count, scaleLevel);
 
+        // Combine count and scale word, handling special dual cases.
         String combinedPart;
-        // Special handling for "one" and "two" with scale words.
-        if (count == BigInt.one && scaleWord == _scaleForms[scaleLevel]!['s']) {
-          combinedPart = scaleWord; // e.g., "ألف" (one thousand)
-        } else if (count == BigInt.two &&
-            scaleWord == _scaleForms[scaleLevel]!['d']) {
-          combinedPart = scaleWord; // e.g., "ألفان" (two thousand)
+        if (count == BigInt.two && scaleWord.endsWith('ان')) {
+          combinedPart =
+              scaleWord; // Use the full dual form (e.g., "ألفان", "مليونان").
+        } else if (count == BigInt.one &&
+            scaleWord == _scaleForms[scaleLevel]!['s']) {
+          combinedPart =
+              scaleWord; // Just use singular scale word for one (e.g., "ألف", "مليون").
         } else {
           combinedPart =
-              "$countText $scaleWord"; // e.g., "ثلاثة آلاف" (three thousands)
+              "$countText $scaleWord"; // Standard: "CountText ScaleWord".
         }
 
-        // Add the combined part to the result list, prepending "و" if it's not the first part.
-        if (firstScalePartProcessed) {
-          parts.add("$_and$combinedPart"); // Add "و" + part
-        } else {
-          parts.add(combinedPart); // First part, no "و"
-        }
-        firstScalePartProcessed = true;
+        // Add "و" before parts after the first one.
+        if (!firstPart && combinedPart.isNotEmpty)
+          parts.add("$_and$combinedPart");
+        else if (combinedPart.isNotEmpty) parts.add(combinedPart);
+        firstPart = false;
       }
     }
 
-    // Process the remaining part (less than 1000).
+    // Handle the final remainder (0-999).
     if (currentN > BigInt.zero) {
-      String remainderText =
-          _convertHundredsAndBelow(currentN.toInt(), gender, baseWords);
-      // Add the remainder part, prepending "و" if needed.
-      if (firstScalePartProcessed) {
+      // Convert remainder using original target noun gender and polarity flag.
+      String remainderText = _convertInteger(currentN, targetNounGender,
+          applyPolarity: applyPolarity);
+      if (!firstPart && remainderText.isNotEmpty)
         parts.add("$_and$remainderText");
-      } else {
-        parts.add(remainderText);
-      }
+      else if (remainderText.isNotEmpty) parts.add(remainderText);
     }
 
     // Join all parts with spaces.
-    return parts.join(' ');
+    return parts.join(' ').trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Converts a number between 0 and 999 into Arabic words.
+  /// Converts hundreds part (100-999) of a number. Helper for [_convertInteger].
+  /// Handles combining hundreds word with the conversion of the remainder (0-99).
+  /// Determines gender for the remainder part based on context and polarity rules.
+  ///
+  /// @param n Number between 100-999.
+  /// @param numberWordGenderForChunk The pre-determined gender for the number word itself (e.g., for مئة).
+  /// @param baseWords The word list matching `numberWordGenderForChunk`.
+  /// @param originalTargetNounGender The gender of the noun being counted (context for remainder).
+  /// @param applyPolarity Whether polarity rules should apply to the remainder (3-10).
+  /// @return Number 100-999 as Arabic words.
   String _convertHundredsAndBelow(
-      int n, Gender gender, List<String> baseWords) {
-    if (n < 0 || n >= 1000)
-      throw ArgumentError("Number out of range 0-999: $n");
-    if (n == 0) return ""; // Nothing to say for zero.
-    // Delegate to _convertChunk for numbers under 100.
-    if (n < 100) return _convertChunk(n, gender, baseWords);
+      int n,
+      Gender numberWordGenderForChunk,
+      List<String> baseWords,
+      Gender originalTargetNounGender,
+      bool applyPolarity) {
+    if (n < 100 || n >= 1000) throw ArgumentError("Input must be 100-999: $n");
 
-    String hundredWord;
-    int remainder = n;
-    int hundredDigit = remainder ~/ 100; // Get the hundreds digit.
+    int hundredDigit = n ~/ 100; // 1-9
+    int remainder = n % 100; // 0-99
+    String hundredWord =
+        _wordsHundreds[hundredDigit]!; // "مئة", "مئتان", "ثلاثمئة"...
 
-    // Get the word for the hundreds place (e.g., "مئة", "مئتان").
-    hundredWord = _wordsHundreds[hundredDigit]!;
-    remainder %= 100; // Get the remainder (0-99).
+    if (remainder == 0)
+      return hundredWord; // Just the hundred word if no remainder.
+    else {
+      // Determine the required gender for the *remainder number word* (1-99).
+      Gender remainderNumberWordGender =
+          originalTargetNounGender; // Default: match noun gender.
 
-    // If there's a remainder, convert it and add it with "و".
-    if (remainder > 0) {
-      return "$hundredWord $_and${_convertChunk(remainder, gender, baseWords)}"; // e.g., "مئة و خمسة"
-    } else {
-      // Just the hundreds word.
-      return hundredWord; // e.g., "مئة"
+      // Apply polarity if requested and remainder is 3-10.
+      if (applyPolarity && remainder >= 3 && remainder <= 10) {
+        remainderNumberWordGender =
+            (originalTargetNounGender == Gender.masculine)
+                ? Gender.feminine
+                : Gender.masculine;
+      }
+      // Adjust gender for standalone context (applyPolarity=false).
+      else if (!applyPolarity) {
+        if (remainder >= 3 && remainder <= 10) {
+          // Standalone 3-10: Use feminine form only if context is feminine, else masculine.
+          remainderNumberWordGender =
+              (originalTargetNounGender == Gender.feminine)
+                  ? Gender.feminine
+                  : Gender.masculine;
+        }
+        // No change needed for 1, 2, 11+, default matching context is correct.
+      }
+      // No change needed if polarity applies but remainder is outside 3-10 range.
+
+      // Select word list based on determined gender for the remainder.
+      final List<String> remainderBaseWords =
+          (remainderNumberWordGender == Gender.feminine)
+              ? _wordsUnder20Fem
+              : _wordsUnder20Masc;
+      // Convert the remainder (1-99).
+      String remainderText = _convertChunk(
+          remainder, remainderNumberWordGender, remainderBaseWords);
+
+      // Combine: "HundredWord wa RemainderText".
+      return "$hundredWord $_and$remainderText";
     }
   }
 
-  /// Converts a number between 0 and 99 into Arabic words.
-  String _convertChunk(int n, Gender gender, List<String> baseWords) {
-    if (n < 0 || n >= 100)
-      throw ArgumentError("Chunk must be between 0 and 99: $n");
-    if (n == 0) return ""; // Nothing to say for zero.
+  /// Converts an integer from 0 to 99 into Arabic words.
+  /// Uses the specified `numberWordGender` and corresponding `baseWords`.
+  /// Handles compound numbers (21-99) with the structure "Unit wa Tens".
+  ///
+  /// @param n Integer 0-99.
+  /// @param numberWordGender The required gender for the number word itself.
+  /// @param baseWords The word list (_wordsUnder20Masc or _wordsUnder20Fem) matching the gender.
+  /// @return Number 0-99 as Arabic words, or empty string if 0.
+  String _convertChunk(int n, Gender numberWordGender, List<String> baseWords) {
+    if (n < 0 || n >= 100) throw ArgumentError("Input must be 0-99: $n");
+    if (n == 0)
+      return ""; // Zero part contributes nothing within a larger number.
 
-    // Use the pre-defined list for numbers under 20.
-    if (n < 20) {
-      return baseWords[n];
-    } else {
-      // For 20 and above:
-      int tensDigit = n ~/ 10; // Get the tens digit.
-      int unitDigit = n % 10; // Get the unit digit.
-      String tensWord = _wordsTens[
-          tensDigit]; // Get the word for the tens place (e.g., "عشرون").
+    if (n < 20)
+      return baseWords[n]; // 0-19 have unique words.
+    else {
+      int tensDigit = n ~/ 10; // 2-9
+      int unitDigit = n % 10; // 0-9
+      String tensWord = _wordsTens[tensDigit]; // "عشرون", "ثلاثون"...
 
-      // If it's a round ten (20, 30, etc.).
-      if (unitDigit == 0) {
-        return tensWord;
-      } else {
-        // If there's a unit digit (e.g., 21, 35):
-        String unitWord;
-
-        // Select the unit word based on gender, with special case for feminine "one".
-        if (gender == Gender.feminine) {
-          if (unitDigit == 1) {
-            unitWord =
-                "إحدى"; // Special form for feminine "one" in compounds (e.g., إحدى وعشرون).
-          } else {
-            unitWord = _wordsUnder20Fem[unitDigit]; // Use feminine words 2-9.
-          }
-        } else {
-          unitWord = _wordsUnder20Masc[unitDigit]; // Use masculine words 1-9.
-        }
-
-        // Combine unit, "و", and tens word (reverse order in Arabic).
-        return "$unitWord $_and$tensWord"; // e.g., "واحد وعشرون"
+      if (unitDigit == 0)
+        return tensWord; // Pure tens (20, 30...).
+      else {
+        // Compound numbers (21-99): Unit + "wa" + Tens.
+        // Special case for 'one' with feminine numbers (إحدى not واحدة).
+        String unitWord =
+            (numberWordGender == Gender.feminine && unitDigit == 1)
+                ? "إحدى" // Use إحدى for feminine compounds like إحدى وعشرون
+                : baseWords[
+                    unitDigit]; // Use standard word from the list otherwise.
+        return "$unitWord $_and$tensWord"; // e.g., "واحد وعشرون", "إحدى وعشرون"
       }
     }
   }
 
-  /// Returns the correct grammatical form of a scale word (thousand, million, etc.)
-  /// based on the count preceding it.
+  /// Selects the correct grammatical form of a scale word (thousand, million, etc.) based on the count.
+  /// Uses the definitions in [_scaleForms].
+  ///
+  /// @param count The number counting the scale unit.
+  /// @param scaleLevel The scale level (1=thousand, 2=million...).
+  /// @return The appropriate scale word form (singular, dual, plural 3-10, plural 11+).
   String _getScaleWord(BigInt count, int scaleLevel) {
-    if (!_scaleForms.containsKey(scaleLevel)) {
-      throw ArgumentError("Scale level $scaleLevel not defined.");
-    }
-    final forms =
-        _scaleForms[scaleLevel]!; // Get the map of forms for this scale level.
+    if (!_scaleForms.containsKey(scaleLevel))
+      throw ArgumentError("Scale level $scaleLevel undefined.");
+    final forms = _scaleForms[scaleLevel]!; // s, d, p3_10, p11+
 
-    // Determine the form based on the count according to Arabic grammar rules.
-    if (count == BigInt.one) return forms['s']!; // Singular form for 1.
-    if (count == BigInt.two) return forms['d']!; // Dual form for 2.
-    if (count >= BigInt.from(3) && count <= BigInt.from(10)) {
-      return forms['p3_10']!; // Specific plural for 3-10.
-    }
-    // For numbers 11 and above, check the last two digits (modulo 100).
+    // Simple cases: 1 and 2.
+    if (count == BigInt.one) return forms['s']!; // Singular form.
+    if (count == BigInt.two) return forms['d']!; // Dual form (e.g., "ألفان").
+
+    // Determine form based on count modulo 100 for numbers >= 3.
     BigInt countMod100 = count % BigInt.from(100);
 
-    // Numbers ending in 11-99 use the accusative singular form (marked as p11+).
-    if (countMod100 >= BigInt.from(11) && countMod100 <= BigInt.from(99)) {
+    // Rule for 3-10: Use p3_10 form. Applies even if count is large (e.g., 103 uses p3_10).
+    if (count >= BigInt.from(3) && count <= BigInt.from(10))
+      return forms['p3_10']!;
+
+    // Rule for 11-99 (within any hundred): Use p11+ form (accusative singular).
+    if (countMod100 >= BigInt.from(11) && countMod100 <= BigInt.from(99))
       return forms['p11+']!;
+
+    // Rules for counts >= 100. Check the last two digits (countMod100).
+    if (count >= BigInt.from(100)) {
+      if (countMod100 == BigInt.zero)
+        return forms['s']!; // 100, 200, etc. take singular.
+      if (countMod100 == BigInt.one)
+        return forms['s']!; // 101, 201, etc. take singular.
+      if (countMod100 == BigInt.two)
+        return forms['d']!; // 102, 202, etc. take dual.
+      if (countMod100 >= BigInt.from(3) && countMod100 <= BigInt.from(10))
+        return forms['p3_10']!; // 103-110, etc. take p3_10.
     }
 
-    // Default case (e.g., for 101, 201, etc., which technically behave like 1) should ideally use singular,
-    // but the logic might simplify here. The current implementation returns singular.
-    return forms['s']!;
+    // Fallback for any other case (should include numbers ending 11-99 handled above).
+    return forms['p11+']!;
   }
 
-  /// Returns the correct grammatical form of a currency unit (main or subunit)
-  /// based on the count preceding it and the specific currency.
-  String _getCurrencyForm(
-    BigInt count,
-    Gender numberGender, // Note: numberGender isn't consistently used here.
-    CurrencyInfo info,
-    bool isMainUnit, {
-    bool forceQirsh = false, // Special flag for Lira's subunit.
-  }) {
-    // Get base forms from CurrencyInfo.
+  /// Selects the correct grammatical form of a currency unit based on the count.
+  /// Contains hardcoded rules for specific known currencies (Lira, Riyal).
+  /// Needs expansion for other currencies with complex plurals.
+  ///
+  /// @param count The number counting the currency unit.
+  /// @param targetNounGender The inherent gender of the currency unit (not used by current logic but kept for signature).
+  /// @param info The [CurrencyInfo] object.
+  /// @param isMainUnit True if getting form for main unit, false for subunit.
+  /// @return The appropriate currency unit form (singular, dual, plural).
+  String _getCurrencyForm(BigInt count, Gender targetNounGender,
+      CurrencyInfo info, bool isMainUnit) {
+    // Get base singular/plural from CurrencyInfo.
     String singular =
         isMainUnit ? info.mainUnitSingular : (info.subUnitSingular ?? '?');
-    String? plural =
-        isMainUnit ? info.mainUnitPlural : (info.subUnitPlural ?? singular);
-    // Placeholders for specific grammatical forms not always present in CurrencyInfo.
-    String? dual;
-    String? p3_10; // Plural used with numbers 3-10.
-    String? p11plus; // Plural (often accusative singular) used with 11+.
+    String? plural = isMainUnit ? info.mainUnitPlural : info.subUnitPlural;
 
-    // --- Hardcoded rules for specific currencies ---
-    // These override or supplement the generic forms from CurrencyInfo.
+    // Initialize specific forms - these will be overridden by hardcoded rules if they match.
+    String? dual = plural; // Default dual to plural if not specified.
+    String? p3_10 = plural; // Default plural 3-10 to general plural.
+    String? p11plus =
+        singular; // Default plural 11+ to singular (common pattern).
+
+    // --- Hardcoded rules for known currencies ---
     if (info.mainUnitSingular == "ليرة") {
-      // Syrian/Lebanese Lira
+      // Syrian Lira Example
       if (isMainUnit) {
-        singular = "ليرة"; // Singular
-        dual = "ليرتان"; // Dual (for 2)
-        p3_10 = "ليرات"; // Plural 3-10
-        p11plus = "ليرة"; // Accusative singular for 11+
+        singular = "ليرة";
+        dual = "ليرتان";
+        p3_10 = "ليرات";
+        p11plus = "ليرة";
       } else {
         // Subunit: Qirsh
-        singular = "قرش"; // Singular
-        dual = "قرشان"; // Dual
-        p3_10 = "قروش"; // Plural 3-10
-        p11plus = "قرشًا"; // Accusative singular for 11+
+        singular = "قرش";
+        dual = "قرشان";
+        p3_10 = "قروش";
+        p11plus = "قرشًا"; // Note accusative
       }
     } else if (info.mainUnitSingular == "ريال سعودي") {
-      // Saudi Riyal
+      // Saudi Riyal Example
       if (isMainUnit) {
-        singular = "ريال سعودي"; // Singular (used for 1, 2, 11+)
-        // dual = null; // Dual is same as singular 'ريال'
-        p3_10 = "ريالات سعودية"; // Plural 3-10
-        p11plus =
-            "ريالاً سعوديًا"; // Accusative singular (needed for 11-99 counts)
+        singular = "ريال سعودي";
+        dual = "ريالان سعوديان";
+        p3_10 = "ريالات سعودية";
+        p11plus = "ريالاً سعودياً"; // Note accusative
       } else {
         // Subunit: Halala
-        singular = "هللة"; // Singular (used for 1, 11+)
-        dual = "هللتان"; // Dual (for 2)
-        p3_10 = "هللات"; // Plural 3-10
-        p11plus = "هللة"; // Accusative singular (same as singular for Halala)
+        singular = "هللة";
+        dual = "هللتان";
+        p3_10 = "هللات";
+        p11plus = "هللة";
       }
     }
-    // --- End of hardcoded rules ---
+    // Add more 'else if' blocks for other currencies here.
 
-    // Apply grammatical rules based on count.
-    if (count == BigInt.zero) {
-      return plural ??
-          singular; // Use plural form for zero, fallback to singular.
-    }
-    if (count == BigInt.one) return singular; // Use singular form for 1.
-    if (count == BigInt.two) {
-      // Exception: 2 Riyals uses singular "ريال" not a dual form.
-      if (isMainUnit && info.mainUnitSingular == "ريال سعودي") return singular;
-      // Otherwise use dual if defined, fallback to plural, then singular.
-      return dual ?? plural ?? singular;
-    }
-    // Use the p3-10 form if defined and count is 3-10, fallback to plural, then singular.
+    // --- Apply standard Arabic number agreement rules ---
+    if (count == BigInt.one) return singular;
+    if (count == BigInt.two)
+      return dual ?? plural ?? singular; // Use specific dual if available.
+
+    BigInt countMod100 = count % BigInt.from(100);
+
+    // Rule for 3-10.
     if (count >= BigInt.from(3) && count <= BigInt.from(10))
       return p3_10 ?? plural ?? singular;
-    // Use the p11+ form if defined and count is 11+, fallback to singular.
-    // Note: This relies on p11plus being correctly defined (often accusative singular).
-    if (count >= BigInt.from(11)) return p11plus ?? singular;
 
-    // Fallback for any uncovered cases (should not happen with non-negative BigInt).
-    return singular;
+    // Rule for 11-99 (within any hundred).
+    if (countMod100 >= BigInt.from(11) && countMod100 <= BigInt.from(99))
+      return p11plus;
+
+    // Rules for counts >= 100 based on last two digits.
+    if (count >= BigInt.from(100)) {
+      if (countMod100 == BigInt.zero)
+        return singular; // 100, 200 take singular.
+      if (countMod100 == BigInt.one) return singular; // 101, 201 take singular.
+      if (countMod100 == BigInt.two)
+        return dual ?? plural ?? singular; // 102, 202 take dual.
+      if (countMod100 >= BigInt.from(3) && countMod100 <= BigInt.from(10))
+        return p3_10 ?? plural ?? singular; // 103-110 take p3_10.
+    }
+
+    // Fallback to general plural or singular if no specific rule matched.
+    return plural ?? singular;
+  }
+
+  /// Helper to retrieve the specifically defined dual form for known currencies.
+  /// Returns null if no specific dual form is hardcoded for the currency.
+  /// Used in _handleCurrency to check for direct dual usage (e.g., ريالان).
+  ///
+  /// @param info The [CurrencyInfo] object.
+  /// @param isMainUnit True if checking main unit, false for subunit.
+  /// @return The specific dual form string or null.
+  String? _getDefinedDualForm(CurrencyInfo info, bool isMainUnit) {
+    if (info.mainUnitSingular == "ليرة") return isMainUnit ? "ليرتان" : "قرشان";
+    if (info.mainUnitSingular == "ريال سعودي")
+      return isMainUnit ? "ريالان سعوديان" : "هللتان";
+    // Add checks for other currencies if specific dual forms exist.
+    return null; // Return null if no specific dual form is defined for this currency.
   }
 }

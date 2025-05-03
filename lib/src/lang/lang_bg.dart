@@ -6,185 +6,168 @@ import '../options/base_options.dart';
 import '../options/bg_options.dart';
 import '../utils/utils.dart';
 
-/// A utility class to hold intermediate results during integer conversion.
-/// Stores the integer value of a chunk and its corresponding text representation.
-/// Used internally by [_convertInteger] to manage parts of large numbers.
+/// Internal helper class for assembling large number conversions.
+///
+/// Stores the integer value, word representation, and scale level (0=units, 1=thousands, etc.)
+/// of a three-digit chunk processed by [_convertInteger].
 class _ChunkInfo {
   final int value;
   final String text;
-  _ChunkInfo(this.value, this.text);
+  final int scaleLevel;
+  _ChunkInfo(this.value, this.text, this.scaleLevel);
 }
 
 /// {@template num2text_bg}
-/// The Bulgarian language (`Lang.BG`) implementation for converting numbers to words.
+/// Converts numbers into their Bulgarian word representations (`Lang.BG`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Bulgarian word representation, adhering to Bulgarian grammatical rules
-/// for gender agreement (masculine, feminine, neuter) and number forms.
-///
-/// Capabilities include handling cardinal numbers, currency (using [BgOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (short scale names).
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [BgOptions].
+/// Implements [Num2TextBase] for Bulgarian, handling various numeric types.
+/// Features include:
+/// *   Cardinal number conversion (positive/negative).
+/// *   Decimal handling with appropriate separators ("цяло и" or "точка").
+/// *   Currency formatting (default BGN) via [BgOptions.currencyInfo].
+/// *   Year formatting with optional era suffixes (AD/BC).
+/// *   Correct grammatical gender (masculine, feminine, neuter) for numbers 1 and 2 based on context.
+/// *   Bulgarian short scale names (хиляда, милион, милиард).
+/// *   Customization via [BgOptions].
+/// *   Fallback messages for invalid inputs.
 /// {@endtemplate}
 class Num2TextBG implements Num2TextBase {
   // --- Constants ---
 
-  /// The word for zero.
   static const String _zero = "нула";
-
-  /// The conjunction "and" used between hundreds/tens/units and sometimes between chunks.
-  static const String _andConjunction = "и";
-
-  /// The default word separating the integer and fractional parts of a decimal number.
-  /// Used when `DecimalSeparator.comma` is specified or as default. Translates to "whole and".
+  static const String _andConjunction = "и"; // "and"
+  /// Default decimal separator word "цяло и" (whole and), used for [DecimalSeparator.comma].
   static const String _defaultDecimalSeparatorWord = "цяло и";
 
-  /// The word used for the decimal point when `DecimalSeparator.period` or `DecimalSeparator.point` is specified.
+  /// Decimal separator word "точка" (point), used for [DecimalSeparator.period] or [DecimalSeparator.point].
   static const String _pointWord = "точка";
 
-  /// The suffix added to negative years (Before Common Era). Means "преди новата ера".
+  /// Suffix for BC years ("преди новата ера" - before the new era).
   static const String _yearSuffixBC = "преди новата ера";
 
-  /// The suffix added to positive years when `includeAD` is true (Common Era). Means "от новата ера".
+  /// Suffix for AD years ("от новата ера" - of the new era), used if [BgOptions.includeAD] is true.
   static const String _yearSuffixAD = "от новата ера";
 
-  /// Word forms for numbers 0 through 19 (neuter/default form).
+  /// Words 0-19 (Neuter/Default forms for 1/2). Gender variants handled by [_getGenderSpecificWord].
   static const List<String> _wordsUnder20 = [
-    _zero, // 0
-    "едно", // 1 (Neuter/Default form)
-    "две", // 2 (Neuter/Feminine form)
-    "три", // 3
-    "четири", // 4
-    "пет", // 5
-    "шест", // 6
-    "седем", // 7
-    "осем", // 8
-    "девет", // 9
-    "десет", // 10
-    "единадесет", // 11
-    "дванадесет", // 12
-    "тринадесет", // 13
-    "четиринадесет", // 14
-    "петнадесет", // 15
-    "шестнадесет", // 16
-    "седемнадесет", // 17
-    "осемнадесет", // 18
-    "деветнадесет", // 19
+    _zero,
+    "едно",
+    "две",
+    "три",
+    "четири",
+    "пет",
+    "шест",
+    "седем",
+    "осем",
+    "девет",
+    "десет",
+    "единадесет",
+    "дванадесет",
+    "тринадесет",
+    "четиринадесет",
+    "петнадесет",
+    "шестнадесет",
+    "седемнадесет",
+    "осемнадесет",
+    "деветнадесет",
   ];
 
-  /// Masculine form for the number 1.
-  static const String _masculineOne = "един";
+  // Gender-specific forms for 1 and 2.
+  static const String _masculineOne = "един"; // 1 (M)
+  static const String _feminineOne = "една"; // 1 (F)
+  static const String _neuterOne = "едно"; // 1 (N)
+  static const String _masculineTwo = "два"; // 2 (M)
+  static const String _feminineTwo = "две"; // 2 (F)
+  static const String _neuterTwo = "две"; // 2 (N) - same as feminine
 
-  /// Feminine form for the number 1.
-  static const String _feminineOne = "една";
-
-  /// Neuter form for the number 1 (also default/standalone).
-  static const String _neuterOne = "едно";
-
-  /// Masculine form for the number 2.
-  static const String _masculineTwo = "два";
-
-  /// Feminine form for the number 2.
-  static const String _feminineTwo = "две";
-
-  /// Neuter form for the number 2 (same as feminine).
-  static const String _neuterTwo = "две";
-
-  /// Word forms for tens (20, 30, ..., 90). Indices 0 and 1 are unused placeholders.
+  /// Words for tens (20, 30... 90).
   static const List<String> _wordsTens = [
-    "", // 0
-    "", // 10 (handled by _wordsUnder20)
-    "двадесет", // 20
-    "тридесет", // 30
-    "четиридесет", // 40
-    "петдесет", // 50
-    "шестдесет", // 60
-    "седемдесет", // 70
-    "осемдесет", // 80
-    "деветдесет", // 90
+    "",
+    "",
+    "двадесет",
+    "тридесет",
+    "четиридесет",
+    "петдесет",
+    "шестдесет",
+    "седемдесет",
+    "осемдесет",
+    "деветдесет",
   ];
 
-  /// Word forms for hundreds (100, 200, ..., 900). Index 0 is unused placeholder.
+  /// Words for hundreds (100, 200... 900).
   static const List<String> _wordsHundreds = [
-    "", // 0
-    "сто", // 100
-    "двеста", // 200
-    "триста", // 300
-    "четиристотин", // 400
-    "петстотин", // 500
-    "шестстотин", // 600
-    "седемстотин", // 700
-    "осемстотин", // 800
-    "деветстотин", // 900
+    "",
+    "сто",
+    "двеста",
+    "триста",
+    "четиристотин",
+    "петстотин",
+    "шестстотин",
+    "седемстотин",
+    "осемстотин",
+    "деветстотин",
   ];
 
-  /// Scale words for large numbers (thousand, million, etc.).
-  /// Maps the exponent (power of 10) to a list containing [singular, plural] forms.
-  /// Note the gender implications: хиляда (feminine), милион/милиард/... (masculine).
+  /// Scale words (short scale). Maps power of 1000 to [singular, plural].
+  /// Gender: хиляда (F), милион/милиард/... (M).
   static const Map<int, List<String>> _scaleWords = {
-    3: ["хиляда", "хиляди"], // Thousand (Feminine)
-    6: ["милион", "милиона"], // Million (Masculine)
-    9: ["милиард", "милиарда"], // Billion (Masculine)
-    12: ["трилион", "трилиона"], // Trillion (Masculine)
-    15: ["квадрилион", "квадрилиона"], // Quadrillion (Masculine)
-    18: ["квинтилион", "квинтилиона"], // Quintillion (Masculine)
-    21: ["секстилион", "секстилиона"], // Sextillion (Masculine)
-    24: ["септилион", "септилиона"], // Septillion (Masculine)
+    3: ["хиляда", "хиляди"], // Thousand (F)
+    6: ["милион", "милиона"], // Million (M)
+    9: ["милиард", "милиарда"], // Billion (M)
+    12: ["трилион", "трилиона"], // Trillion (M)
+    15: ["квадрилион", "квадрилиона"], // Quadrillion (M)
+    18: ["квинтилион", "квинтилиона"], // Quintillion (M)
+    21: ["секстилион", "секстилиона"], // Sextillion (M)
+    24: ["септилион", "септилиона"], // Septillion (M)
     // Add more scales as needed
   };
 
   // --- Public API Method ---
 
-  /// Converts a given number to its Bulgarian word representation.
+  /// {@macro num2text_base_process}
   ///
-  /// - `number` The number to convert (can be `int`, `double`, `BigInt`, `Decimal`, `String`).
-  /// - `options` Optional [BgOptions] to customize formatting (currency, year, etc.).
-  /// - `fallbackOnError` A custom string to return if conversion fails (e.g., invalid input).
-  /// Returns the word representation of the number or an error/fallback string.
+  /// Processes the given [number] into Bulgarian words.
+  ///
+  /// @param number The number to convert.
+  /// @param options Optional [BgOptions] for customization.
+  /// @param fallbackOnError Optional error string (defaults to "Не е число").
+  /// @return The number as Bulgarian words or an error string.
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
     final BgOptions bgOptions =
         options is BgOptions ? options : const BgOptions();
     final String errorFallback =
-        fallbackOnError ?? "Не е число"; // Default fallback
+        fallbackOnError ?? "Не е число"; // "Not a number"
 
-    // Handle special double values first
+    // Handle non-finite doubles.
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? "Отрицателна безкрайност" : "Безкрайност";
-      }
       if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal
+    // Normalize to Decimal.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
     if (decimalValue == null) return errorFallback;
 
-    // Handle zero separately for clarity and special cases (currency)
+    // Handle zero.
     if (decimalValue == Decimal.zero) {
       if (bgOptions.currency) {
-        // Get the appropriate plural form for "zero" units (usually plural for BGN)
         final String zeroUnit = bgOptions.currencyInfo.mainUnitPlural ??
             bgOptions.currencyInfo.mainUnitSingular;
-        return "$_zero $zeroUnit";
+        return "$_zero $zeroUnit"; // e.g., "нула лева"
       }
-      // For years or standard numbers, zero is just "нула"
-      return _zero;
+      return _zero; // "нула"
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
 
-    // Delegate based on formatting options
+    // Dispatch based on format.
     if (bgOptions.format == Format.year) {
-      // Year formatting requires integer input and specific handling.
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), bgOptions);
     } else {
@@ -193,172 +176,310 @@ class Num2TextBG implements Num2TextBase {
       } else {
         textResult = _handleStandardNumber(absValue, bgOptions);
       }
-      // Add negative prefix if needed *after* core conversion (unless it's a year).
+      // Prepend negative prefix if needed (not for years).
       if (isNegative) {
         textResult = "${bgOptions.negativePrefix} $textResult";
       }
     }
 
-    // Clean up potential extra spaces
     return textResult.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  // --- Private Helper Methods ---
-
-  /// Handles the specific formatting logic for years.
+  /// Converts a non-negative integer into Bulgarian words, handling scales and gender.
   ///
-  /// - `year` The integer year value.
-  /// - `options` The [BgOptions] controlling suffixes (AD/BC).
-  /// Returns the year formatted as Bulgarian words.
-  String _handleYearFormat(int year, BgOptions options) {
-    final bool isNegative = year < 0;
-    final int absYear = isNegative ? -year : year;
-    final BigInt bigAbsYear = BigInt.from(absYear);
+  /// This is the core recursive/iterative logic for large numbers.
+  /// It breaks the number into 3-digit chunks, converts them considering the grammatical
+  /// gender required by the context (standalone, currency unit, scale word), and
+  /// combines them with scale words (хиляда, милион, etc.) and the conjunction "и".
+  ///
+  /// @param n The non-negative integer to convert.
+  /// @param contextGender The grammatical gender required for the number '1' and '2'
+  ///                      in the least significant part or determined by the scale word.
+  /// @param isYearContext If true, applies specific logic for joining parts in years (currently not distinct).
+  /// @return The integer as Bulgarian words.
+  /// @throws ArgumentError if `n` is negative.
+  String _convertInteger(BigInt n, Gender contextGender, bool isYearContext) {
+    if (n == BigInt.zero) return _zero;
+    if (n < BigInt.zero) {
+      throw ArgumentError("Input must be non-negative: $n");
+    }
 
-    // Years are typically treated as neuter numbers in Bulgarian when spoken standalone.
-    // The conversion function handles placing "и" correctly for years.
+    // Handle numbers < 1000 directly.
+    if (n < BigInt.from(1000)) {
+      return _convertChunk(n.toInt(), contextGender, false);
+    }
+
+    final List<_ChunkInfo> parts = [];
+    final BigInt oneThousand = BigInt.from(1000);
+    BigInt remaining = n;
+    int scalePower = 0; // Power of 1000 (0=units, 1=thousands, ...)
+
+    while (remaining > BigInt.zero) {
+      final int chunkValueInt = (remaining % oneThousand).toInt();
+      remaining ~/= oneThousand;
+      int currentScaleLevel =
+          scalePower * 3; // Power of 10 (e.g., 3=thousands, 6=millions)
+
+      if (chunkValueInt > 0) {
+        Gender chunkGender; // Gender context for this specific chunk.
+        String scaleWordText =
+            ""; // Text for the scale word (e.g., "хиляди", "милиона").
+        bool omitUnitsForSingularThousand =
+            false; // Use "хиляда" instead of "една хиляда"?
+
+        // Determine chunk gender and scale word based on the scale level.
+        if (currentScaleLevel >= 6) {
+          // Millions, Billions, etc. (Masculine)
+          chunkGender = Gender.masculine;
+          if (_scaleWords.containsKey(currentScaleLevel)) {
+            scaleWordText = chunkValueInt == 1
+                ? _scaleWords[currentScaleLevel]![0]
+                : _scaleWords[currentScaleLevel]![1];
+          }
+          if (chunkValueInt == 1) {
+            // Example: "един милион" - the '1' should be masculine 'един'.
+            // forceMasculineOneForChunk seems intended for this, but _convertChunk uses 'gender'.
+            // Check if _convertChunk respects forceMasculineOne when gender is masculine.
+            // If _convertChunk already handles Gender.masculine correctly, this flag might be redundant.
+            // Assuming _convertChunk uses the 'gender' parameter primarily.
+          }
+        } else if (currentScaleLevel == 3) {
+          // Thousands (Feminine)
+          chunkGender = Gender.feminine;
+          if (_scaleWords.containsKey(currentScaleLevel)) {
+            scaleWordText = chunkValueInt == 1
+                ? _scaleWords[currentScaleLevel]![0]
+                : _scaleWords[currentScaleLevel]![1];
+          }
+          // Special case: "хиляда" (1000) vs "една хиляда".
+          // Typically, "хиляда" is used alone for 1000. "Една хиляда" might imply "one thousand (of something)".
+          if (chunkValueInt == 1) {
+            omitUnitsForSingularThousand = true; // Omit the "една" part.
+          }
+        } else {
+          // Units chunk (0-999) - use the context gender passed in.
+          chunkGender = contextGender;
+        }
+
+        // Convert the 0-999 chunk to words, applying the determined gender.
+        // Pass false for forceMasculineOne, rely on chunkGender.
+        final String chunkText = omitUnitsForSingularThousand
+            ? ""
+            : _convertChunk(chunkValueInt, chunkGender, false);
+
+        // Combine the chunk text (e.g., "двеста") with the scale word (e.g., "хиляди").
+        final String combinedText = scaleWordText.isEmpty
+            ? chunkText
+            : (chunkText.isEmpty ? scaleWordText : '$chunkText $scaleWordText');
+
+        // Store the processed chunk info.
+        if (combinedText.isNotEmpty) {
+          parts.insert(0, _ChunkInfo(chunkValueInt, combinedText, scalePower));
+        }
+      } else {
+        // Handle zero chunks (e.g., in 1,000,500) to potentially place separators later.
+        // This logic seems complex and might be simplified. Review if it's strictly needed.
+        if (parts.isNotEmpty && scalePower > 0 && remaining > BigInt.zero) {
+          // parts.insert(0, _ChunkInfo(0, "", scalePower)); // Keep track of zero chunks?
+        }
+      }
+      scalePower++;
+    }
+
+    // Assemble the final string from parts, adding conjunctions ("и") where needed.
+    // Bulgarian rule: "и" is typically used before the last component if it's < 100
+    // (e.g., "хиляда и пет", "двеста и петдесет", "триста двадесет и едно").
+    // It's NOT used like English "one hundred AND twenty-three".
+    final StringBuffer result = StringBuffer();
+    for (int i = 0; i < parts.length; i++) {
+      final _ChunkInfo currentPart = parts[i];
+      if (currentPart.text.isEmpty) continue;
+
+      result.write(currentPart.text);
+
+      // Determine if a conjunction ("и") or space is needed before the next part.
+      int nextPartIndex = -1;
+      for (int j = i + 1; j < parts.length; j++) {
+        if (parts[j].text.isNotEmpty) {
+          nextPartIndex = j;
+          break;
+        }
+      }
+
+      if (nextPartIndex != -1) {
+        final _ChunkInfo nextPart = parts[nextPartIndex];
+
+        // Add "и" if the *next* part is the final units chunk (scaleLevel 0)
+        // AND its value is < 100 or a multiple of 100 (like 100, 200 - unusual case here).
+        final bool isNextPartUnitsChunk = (nextPart.scaleLevel == 0);
+        // Add "и" before numbers like 1-99, 10, 20, etc. and potentially before 100, 200? (check rule)
+        // Rule refined: Add "и" if next part is the last chunk AND (value is < 100 OR value is multiple of 100).
+        final bool nextPartValueNeedsAnd =
+            (nextPart.value < 100 && nextPart.value > 0) ||
+                (nextPart.value % 100 == 0 &&
+                    nextPart.value > 0 &&
+                    nextPart.value < 1000);
+
+        if (isNextPartUnitsChunk && nextPartValueNeedsAnd) {
+          result.write(" $_andConjunction ");
+        } else {
+          result.write(" "); // Just a space between scales otherwise.
+        }
+      }
+    }
+
+    return result.toString().trim();
+  }
+
+  /// Formats an integer as a Bulgarian year with optional era suffixes.
+  ///
+  /// Converts the year using neuter gender and appends "преди новата ера" (BC)
+  /// or "от новата ера" (AD) based on sign and [BgOptions.includeAD].
+  ///
+  /// @param year The integer year.
+  /// @param options The [BgOptions].
+  /// @return The year as Bulgarian words.
+  String _handleYearFormat(int year, BgOptions options) {
+    if (year == 0) return _zero; // Technically no year zero.
+    final bool isNegative = year < 0;
+    final BigInt bigAbsYear = BigInt.from(isNegative ? -year : year);
+
+    // Years are typically converted using neuter gender.
     String yearText = _convertInteger(bigAbsYear, Gender.neuter, true);
 
-    // Add era suffixes if applicable
-    if (isNegative) {
+    // Append era suffixes.
+    if (isNegative)
       yearText += " $_yearSuffixBC";
-    } else if (options.includeAD && absYear > 0) {
-      // Only add AD suffix if requested and year is positive
-      yearText += " $_yearSuffixAD";
-    }
+    else if (options.includeAD)
+      yearText += " $_yearSuffixAD"; // Only add AD if requested.
+
     return yearText;
   }
 
-  /// Handles the formatting logic for currency values.
+  /// Formats a non-negative [Decimal] as Bulgarian currency (Lev/Stotinka).
   ///
-  /// - `absValue` The absolute (non-negative) [Decimal] value of the currency.
-  /// - `options` The [BgOptions] providing currency info and rounding rules.
-  /// Returns the currency value formatted as Bulgarian words.
+  /// Handles rounding, unit separation, gender agreement (Lev=M, Stotinka=F),
+  /// singular/plural forms, and joining with "и" (or custom separator).
+  ///
+  /// @param absValue The absolute currency value.
+  /// @param options The [BgOptions] with currency info.
+  /// @return The currency value as Bulgarian words.
   String _handleCurrency(Decimal absValue, BgOptions options) {
     final CurrencyInfo currencyInfo = options.currencyInfo;
-    const int decimalPlaces = 2; // Standard currency precision
-    final Decimal subunitMultiplier =
-        Decimal.fromInt(100); // 100 subunits in main unit
+    const int decimalPlaces = 2;
+    final Decimal subunitMultiplier = Decimal.fromInt(100);
 
-    // Round the value *before* splitting if requested
+    // Round if requested.
     final Decimal valueToConvert =
         options.round ? absValue.round(scale: decimalPlaces) : absValue;
 
-    // Separate the main unit and subunit values
     final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    // Calculate fractional part accurately
     final Decimal fractionalPart =
         valueToConvert - Decimal.fromBigInt(mainValue);
-    // Use round for robustness
     final BigInt subunitValue =
         (fractionalPart * subunitMultiplier).round().toBigInt();
 
-    // --- Main Unit Conversion ---
-    // Main currency unit (лев) is masculine
-    final String mainText = _convertInteger(mainValue, Gender.masculine, false);
-    String mainUnitName;
-    if (mainValue == BigInt.one) {
-      // Use singular form for 1
-      mainUnitName = currencyInfo.mainUnitSingular;
-    } else {
-      // Use plural form for 0, 2+ (BGN uses simple plural)
-      mainUnitName =
-          currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+    String mainPartString = "";
+    if (mainValue > BigInt.zero) {
+      // Main unit (Lev) is masculine.
+      final String mainText =
+          _convertInteger(mainValue, Gender.masculine, false);
+      // Select singular ("лев") or plural ("лева").
+      final String mainUnitName = (mainValue == BigInt.one)
+          ? currencyInfo.mainUnitSingular
+          : (currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular);
+      mainPartString = '$mainText $mainUnitName';
     }
 
-    String result = '$mainText $mainUnitName';
-
-    // --- Subunit Conversion (if any) ---
+    String subunitPartString = "";
     if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      // Subunit (стотинка) is feminine
+      // Subunit (Stotinka) is feminine.
       final String subunitText =
           _convertInteger(subunitValue, Gender.feminine, false);
-      String subUnitName;
-      if (subunitValue == BigInt.one) {
-        // Use singular form for 1
-        subUnitName = currencyInfo.subUnitSingular!;
-      } else {
-        // Use plural form for 0, 2+
-        subUnitName = currencyInfo.subUnitPlural!;
-      }
-      // Add separator and subunit text. Use default "и" if separator is null.
-      result +=
-          ' ${currencyInfo.separator ?? _andConjunction} $subunitText $subUnitName';
+      // Select singular ("стотинка") or plural ("стотинки").
+      final String subUnitName = (subunitValue == BigInt.one)
+          ? currencyInfo.subUnitSingular!
+          : (currencyInfo.subUnitPlural ?? currencyInfo.subUnitSingular!);
+      subunitPartString = '$subunitText $subUnitName';
     }
-    return result;
+
+    // Combine parts.
+    if (mainPartString.isNotEmpty && subunitPartString.isNotEmpty) {
+      final String separator = currencyInfo.separator ?? _andConjunction;
+      return '$mainPartString $separator $subunitPartString';
+    } else if (mainPartString.isNotEmpty) {
+      return mainPartString;
+    } else if (subunitPartString.isNotEmpty) {
+      // Handle cases like 0.50 -> "петдесет стотинки".
+      return subunitPartString;
+    } else {
+      // Should be handled by zero check in `process`, but fallback for safety.
+      final String zeroUnit =
+          currencyInfo.mainUnitPlural ?? currencyInfo.mainUnitSingular;
+      return "$_zero $zeroUnit";
+    }
   }
 
-  /// Handles the conversion of standard numbers (integers or decimals).
-  /// Removes trailing zeros from the decimal part.
+  /// Converts a non-negative standard [Decimal] number into Bulgarian words.
   ///
-  /// - `absValue` The absolute (non-negative) [Decimal] value.
-  /// - `options` The [BgOptions] providing decimal separator preference.
-  /// Returns the number formatted as Bulgarian words.
+  /// Handles integer and fractional parts. Integer part uses neuter gender.
+  /// Fractional part is read digit-by-digit after the separator word ("цяло и" or "точка").
+  /// Removes trailing zeros from the fractional part display.
+  ///
+  /// @param absValue The absolute decimal value.
+  /// @param options The [BgOptions] with decimal separator preference.
+  /// @return The number as Bulgarian words.
   String _handleStandardNumber(Decimal absValue, BgOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - Decimal.fromBigInt(integerPart);
 
-    // Convert the integer part (use "нула" if integer is 0 but there's a fractional part)
-    // Default gender for standalone numbers is neuter.
+    // Integer part uses neuter gender for standard numbers. Handle 0.x cases.
     final String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
             ? _zero
             : _convertInteger(integerPart, Gender.neuter, false);
 
     String fractionalWords = '';
-    // Process fractional part only if it exists and the number is not an integer.
+    // Process fractional part only if non-zero and the number isn't effectively an integer.
     if (fractionalPart > Decimal.zero && !absValue.isInteger) {
-      // Convert the fractional part digit by digit
       String decimalString = absValue.toString();
       String fractionalDigits =
           decimalString.contains('.') ? decimalString.split('.').last : '';
-
-      // Important: Remove trailing zeros from the fractional part for correct pronunciation
-      fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
+      fractionalDigits = fractionalDigits.replaceAll(
+          RegExp(r'0+$'), ''); // Remove trailing zeros
 
       if (fractionalDigits.isNotEmpty) {
-        // Convert each digit after the decimal point individually
+        // Convert digits to words (using default neuter forms).
         final List<String> digitWordsList =
             fractionalDigits.split('').map((digit) {
           final int? digitInt = int.tryParse(digit);
-          // Digits after decimal point use the default neuter form
           return (digitInt != null &&
                   digitInt >= 0 &&
                   digitInt < _wordsUnder20.length)
               ? _wordsUnder20[digitInt]
-              : '?'; // Fallback
+              : '?';
         }).toList();
-
         final String fractionalText = digitWordsList.join(' ');
 
-        // Choose the separator word based on options
-        final DecimalSeparator separatorType = options.decimalSeparator ??
-            DecimalSeparator.comma; // Default to comma ("цяло и")
-        String separatorWord;
-        switch (separatorType) {
-          case DecimalSeparator.point:
-          case DecimalSeparator.period:
-            separatorWord = _pointWord;
-            break;
-          case DecimalSeparator.comma:
-            separatorWord = _defaultDecimalSeparatorWord;
-            break;
-        }
+        // Choose separator word based on options.
+        final String separatorWord =
+            (options.decimalSeparator ?? DecimalSeparator.comma) ==
+                    DecimalSeparator.comma
+                ? _defaultDecimalSeparatorWord // "цяло и"
+                : _pointWord; // "точка"
+
         fractionalWords = ' $separatorWord $fractionalText';
       }
-      // If fractionalDigits is empty after removing zeros, fractionalWords remains empty.
     }
-    // Note: Case 123.0 is handled correctly as !absValue.isInteger is false.
-
     return '$integerWords$fractionalWords';
   }
 
-  /// Returns the gender-specific word form for 1 or 2.
+  /// Returns the gender-specific Bulgarian word for 1 or 2.
   ///
-  /// For other numbers under 20, it returns the standard form from [_wordsUnder20].
-  /// - `number` The number (expected to be 1 or 2, but handles < 20).
-  /// - `gender` The required grammatical [Gender].
-  /// Returns the correct word form.
+  /// @param number The number (expected 1 or 2).
+  /// @param gender The required [Gender].
+  /// @return The gender-specific word ("един"/"една"/"едно" or "два"/"две").
+  ///         Returns the default form for other numbers 0, 3-19.
   String _getGenderSpecificWord(int number, Gender gender) {
     if (number == 1) {
       switch (gender) {
@@ -376,210 +497,64 @@ class Num2TextBG implements Num2TextBase {
         case Gender.feminine:
           return _feminineTwo;
         case Gender.neuter:
-          return _neuterTwo;
+          return _neuterTwo; // Neuter 2 is same as Feminine 2.
       }
     }
-
-    // Fallback for numbers other than 1 or 2 (or if gender logic isn't needed)
-    if (number >= 0 && number < _wordsUnder20.length) {
-      return _wordsUnder20[number];
-    }
-
-    // Should not happen with valid input
-    return '?';
+    // Fallback for 0, 3-19.
+    return (number >= 0 && number < _wordsUnder20.length)
+        ? _wordsUnder20[number]
+        : '';
   }
 
-  /// Converts a non-negative integer (`BigInt`) into its Bulgarian word representation.
-  /// This is the core recursive function that handles chunking and scale words.
+  /// Converts an integer chunk (0-999) into Bulgarian words.
   ///
-  /// - `n` The non-negative integer to convert.
-  /// - `contextGender` The grammatical [Gender] required by the context (e.g., for currency or standalone numbers).
-  /// - `isYearContext` Flag indicating if the number represents a year (affects 'и' placement).
-  /// Returns the integer as words.
-  String _convertInteger(BigInt n, Gender contextGender, bool isYearContext) {
-    if (n == BigInt.zero) return _zero;
-    if (n < BigInt.zero) {
-      throw ArgumentError(
-          "Integer must be non-negative for _convertInteger: $n");
-    }
-
-    // Base case: numbers less than 1000 are handled by _convertChunk
-    if (n < BigInt.from(1000)) {
-      // Pass false for forceMasculineOne as it's not needed here.
-      return _convertChunk(n.toInt(), contextGender, false);
-    }
-
-    final List<_ChunkInfo> parts =
-        []; // Stores results for each chunk (thousands, millions...)
-    final BigInt oneThousand = BigInt.from(1000);
-    BigInt remaining = n;
-    int scalePower = 0; // 0 for units, 3 for thousands, 6 for millions...
-
-    // Process the number in chunks of three digits (right to left)
-    while (remaining > BigInt.zero) {
-      final int chunkValueInt = (remaining % oneThousand).toInt();
-      remaining ~/= oneThousand; // Move to the next chunk
-
-      if (chunkValueInt > 0) {
-        Gender chunkGender;
-        String scaleWordText = "";
-        bool forceMasculineOneForChunk = false;
-        bool omitUnitsForSingularThousand = false; // Special case for "хиляда"
-
-        // Determine gender and scale word based on the scale power
-        if (scalePower >= 6) {
-          // Millions, billions, etc. are masculine
-          chunkGender = Gender.masculine;
-          if (_scaleWords.containsKey(scalePower)) {
-            scaleWordText = chunkValueInt == 1
-                ? _scaleWords[scalePower]![0] // Singular form (e.g., "милион")
-                : _scaleWords[scalePower]![1]; // Plural form (e.g., "милиона")
-          }
-          // If the chunk is exactly 1 (e.g., 1,000,000), use "един" instead of "едно"
-          if (chunkValueInt == 1) forceMasculineOneForChunk = true;
-        } else if (scalePower == 3) {
-          // Thousands are feminine ("хиляда", "хиляди")
-          chunkGender = Gender.feminine;
-          if (_scaleWords.containsKey(scalePower)) {
-            scaleWordText = chunkValueInt == 1
-                ? _scaleWords[scalePower]![0] // Singular "хиляда"
-                : _scaleWords[scalePower]![1]; // Plural "хиляди"
-          }
-          // Special case: "хиляда" (1000) often omits the "една" part
-          if (chunkValueInt == 1 && n >= oneThousand) {
-            omitUnitsForSingularThousand = true;
-          }
-        } else {
-          // The last chunk (0-999) uses the context gender
-          chunkGender = contextGender;
-        }
-
-        // Convert the 3-digit chunk itself using the determined gender
-        final String chunkText = omitUnitsForSingularThousand
-            ? "" // Omit "една" for "хиляда"
-            : _convertChunk(
-                chunkValueInt, chunkGender, forceMasculineOneForChunk);
-
-        // Combine chunk text with its scale word (if any)
-        final String combinedText = scaleWordText.isEmpty
-            ? chunkText
-            : (chunkText.isEmpty ? scaleWordText : '$chunkText $scaleWordText');
-
-        if (combinedText.isNotEmpty) {
-          // Insert at the beginning to maintain correct order
-          parts.insert(0, _ChunkInfo(chunkValueInt, combinedText));
-        }
-      } else {
-        // Insert placeholder for empty chunks if needed for correct 'и' placement later
-        if (parts.isNotEmpty && scalePower > 0 && remaining > BigInt.zero) {
-          parts.insert(0, _ChunkInfo(0, ""));
-        }
-      }
-
-      scalePower += 3; // Move to the next scale level
-    }
-
-    // Join the processed chunks with appropriate separators (" " or " и ")
-    final StringBuffer result = StringBuffer();
-    for (int i = 0; i < parts.length; i++) {
-      final _ChunkInfo currentPart = parts[i];
-      if (currentPart.text.isEmpty) continue; // Skip placeholders
-
-      result.write(currentPart.text);
-
-      // Check if a separator is needed before the *next* non-empty part
-      int nextPartIndex = -1;
-      for (int j = i + 1; j < parts.length; j++) {
-        if (parts[j].text.isNotEmpty) {
-          nextPartIndex = j;
-          break;
-        }
-      }
-
-      if (nextPartIndex != -1) {
-        final _ChunkInfo nextPart = parts[nextPartIndex];
-        // Determine if "и" is needed between chunks.
-        // Generally needed if the next chunk is < 100, OR
-        // in year context if the next chunk is a multiple of 100 (e.g., 1900 = хиляда *и* деветстотин).
-        final bool needsAnd = (nextPart.value < 100) ||
-            (isYearContext && nextPart.value % 100 == 0);
-        result.write(needsAnd ? " $_andConjunction " : " ");
-      }
-    }
-
-    return result.toString();
-  }
-
-  /// Converts a three-digit integer (0-999) into its Bulgarian word representation.
-  /// Handles hundreds, tens, units, and the conjunction 'и'.
+  /// Handles hundreds, tens, units, applying gender to 1/2 and using the conjunction "и"
+  /// according to Bulgarian grammar (e.g., "сто и едно", "сто и десет", "сто двадесет и три").
   ///
-  /// - `n` The integer chunk (0-999).
-  /// - `gender` The grammatical [Gender] required for 1 and 2 within this chunk.
-  /// - `forceMasculineOne` If true, forces the use of "един" for 1, overriding `gender`.
-  ///   Used for masculine scale words (милион, милиард).
-  /// Returns the chunk as words.
+  /// @param n The integer chunk (0-999).
+  /// @param gender The required [Gender] for 1 and 2.
+  /// @param forceMasculineOne Currently unused, relies on [gender]. Set to true if needed for specific scale word cases.
+  /// @return The chunk as Bulgarian words. Returns empty string for 0.
+  /// @throws ArgumentError if `n` is outside 0-999.
   String _convertChunk(int n, Gender gender, bool forceMasculineOne) {
-    if (n == 0) return ""; // Nothing to convert for zero chunk
-    if (n < 0 || n >= 1000) {
-      throw ArgumentError("Chunk must be between 0 and 999: $n");
-    }
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
 
     final StringBuffer words = StringBuffer();
     int remainder = n;
 
-    // --- Hundreds ---
+    // Handle hundreds.
     if (remainder >= 100) {
-      words.write(_wordsHundreds[remainder ~/ 100]);
+      words.write(_wordsHundreds[remainder ~/ 100]); // "сто", "двеста", etc.
       remainder %= 100;
-
-      // Add separator if there are remaining tens/units
       if (remainder > 0) {
-        // Determine if "и" is needed after hundreds.
-        // Needed if the remainder is < 10 (e.g., сто *и* едно) or 11-19 (e.g., сто *и* единадесет),
-        // OR if the remainder is a multiple of 10 (e.g. сто и двадесет) - this differs from some languages.
-        // Test cases show "сто двадесет", "сто и едно", "сто и единадесет".
+        // Add "и" if needed before tens/units:
+        // Rule: Add "и" unless the remainder is like 21-29, 31-39, ... (20+ and not multiple of 10).
+        // Add "и" for 1-19, 20, 30, etc.
         final bool needsAndAfterHundred =
-            (remainder < 10 || (remainder >= 11 && remainder < 20));
+            (remainder < 20 || remainder % 10 == 0);
         words.write(needsAndAfterHundred ? " $_andConjunction " : " ");
       }
     }
 
-    // --- Tens and Units ---
+    // Handle tens and units (0-99).
     if (remainder > 0) {
       if (remainder < 20) {
-        // Numbers 1-19
-        String word;
-        if (remainder == 1 && forceMasculineOne) {
-          // Special case for "един милион", etc.
-          word = _masculineOne;
-        } else {
-          // Use gender-specific form for 1 or 2, or standard form otherwise
-          word = _getGenderSpecificWord(remainder, gender);
-        }
-        words.write(word);
+        // 1-19: use gender-specific word.
+        words.write(_getGenderSpecificWord(remainder, gender));
       } else {
-        // Numbers 20-99
-        final String tensWord = _wordsTens[
-            remainder ~/ 10]; // Get the tens word (двадесет, тридесет...)
+        // 20-99:
+        final String tensWord = _wordsTens[remainder ~/ 10]; // "двадесет", etc.
         words.write(tensWord);
         final int unit = remainder % 10;
         if (unit > 0) {
-          // Add "и" before the unit (e.g., двадесет *и* едно)
+          // Add "и" before the unit digit (e.g., "двадесет и три").
           words.write(" $_andConjunction ");
-
-          String unitWord;
-          if (unit == 1 && forceMasculineOne) {
-            // Apply forceMasculineOne to the unit as well
-            unitWord = _masculineOne;
-          } else {
-            // Get the unit word with correct gender
-            unitWord = _getGenderSpecificWord(unit, gender);
-          }
-          words.write(unitWord);
+          words.write(_getGenderSpecificWord(
+              unit, gender)); // Use gender-specific unit.
         }
       }
     }
-
     return words.toString();
   }
 }

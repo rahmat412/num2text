@@ -3,593 +3,442 @@ import 'package:decimal/decimal.dart';
 import '../concurencies/concurencies_info.dart';
 import '../num2text_base.dart';
 import '../options/base_options.dart';
-import '../options/es_options.dart'; // Options specific to Spanish formatting.
+import '../options/es_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_es}
-/// The Spanish language (`Lang.ES`) implementation for converting numbers to words.
+/// Converts numbers to Spanish words (`Lang.ES`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Spanish word representation following standard Spanish grammar and vocabulary.
+/// Implements [Num2TextBase] for Spanish, handling various numeric types.
+/// Features:
+/// - Cardinal numbers (e.g., "ciento veintitrés").
+/// - Decimal numbers (e.g., "cuarenta y cinco coma seis").
+/// - Negative numbers (e.g., "menos diez").
+/// - Currency formatting (e.g., "un euro con cincuenta céntimos").
+/// - Year formatting (e.g., "mil novecientos noventa y nueve").
+/// - Large numbers using the **long scale** (billón = 10^12).
+/// - Spanish grammatical rules: gender agreement ("un"/"uno"), conjunction "y".
 ///
-/// Capabilities include handling cardinal numbers, currency (using [EsOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers using the
-/// long scale system (billón = 10^12). It handles Spanish grammatical rules, including
-/// gender agreement ("un" vs "uno") before `mil` and scale words like `millón`.
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [EsOptions].
+/// Customizable via [EsOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextES implements Num2TextBase {
   // --- Constants ---
-
-  /// The word for the number zero.
   static const String _zero = "cero";
+  static const String _point = "punto"; // Decimal separator (.)
+  static const String _comma =
+      "coma"; // Decimal separator (,) - Spanish default
+  static const String _and = "y"; // Conjunction (e.g., "treinta y uno")
+  static const String _currencySeparator =
+      "con"; // Default currency subunit separator
+  static const String _hundredSingular = "cien"; // Exactly 100
+  static const String _hundredPrefix = "ciento"; // Prefix for 101-199
+  static const String _thousand =
+      "mil"; // Thousand (doesn't pluralize as 'miles' here)
+  static const String _yearSuffixBC = "a.C."; // Antes de Cristo (BC)
+  static const String _yearSuffixAD = "d.C."; // después de Cristo (AD)
 
-  /// The word for the decimal separator when a period (`.`) is used.
-  static const String _point = "punto";
-
-  /// The word for the decimal separator when a comma (`,`) is used (default for Spanish).
-  static const String _comma = "coma";
-
-  /// The conjunction "y" used between tens and units for numbers 31-99 (e.g., "treinta y uno").
-  static const String _and = "y";
-
-  /// The word used to separate the main currency unit from the subunit (e.g., "euros con céntimos").
-  /// Defined in [CurrencyInfo.separator], defaults to "con".
-  static const String _currencySeparator = "con";
-
-  /// The word for exactly one hundred ("cien").
-  static const String _hundredSingular = "cien";
-
-  /// The prefix used for numbers between 101 and 199 ("ciento").
-  static const String _hundredPrefix = "ciento";
-
-  /// The word for thousand ("mil"). Note: It doesn't pluralize as "miles" when directly following a number.
-  static const String _thousand = "mil";
-
-  /// The suffix for negative years, meaning "Before Christ" ("Antes de Cristo").
-  static const String _yearSuffixBC = "a.C.";
-
-  /// The suffix for positive years, meaning "After Christ" ("después de Cristo").
-  /// Added only if [EsOptions.includeAD] is true.
-  static const String _yearSuffixAD = "d.C.";
-
-  /// Word forms for numbers 0 through 29.
+  /// Words for 0-29 (direct lookup).
   static const List<String> _wordsUnder30 = [
-    "cero", // 0
-    "uno", // 1
-    "dos", // 2
-    "tres", // 3
-    "cuatro", // 4
-    "cinco", // 5
-    "seis", // 6
-    "siete", // 7
-    "ocho", // 8
-    "nueve", // 9
-    "diez", // 10
-    "once", // 11
-    "doce", // 12
-    "trece", // 13
-    "catorce", // 14
-    "quince", // 15
-    "dieciséis", // 16
-    "diecisiete", // 17
-    "dieciocho", // 18
-    "diecinueve", // 19
-    "veinte", // 20
-    "veintiuno", // 21
-    "veintidós", // 22
-    "veintitrés", // 23
-    "veinticuatro", // 24
-    "veinticinco", // 25
-    "veintiséis", // 26
-    "veintisiete", // 27
-    "veintiocho", // 28
-    "veintinueve", // 29
+    "cero",
+    "uno",
+    "dos",
+    "tres",
+    "cuatro",
+    "cinco",
+    "seis",
+    "siete",
+    "ocho",
+    "nueve",
+    "diez",
+    "once",
+    "doce",
+    "trece",
+    "catorce",
+    "quince",
+    "dieciséis",
+    "diecisiete",
+    "dieciocho",
+    "diecinueve",
+    "veinte",
+    "veintiuno",
+    "veintidós",
+    "veintitrés",
+    "veinticuatro",
+    "veinticinco",
+    "veintiséis",
+    "veintisiete",
+    "veintiocho",
+    "veintinueve",
   ];
 
-  /// Word forms for tens from 30 to 90. Indices 3-9 correspond to 30-90.
+  /// Words for 30, 40, ..., 90. Index 3 = treinta.
   static const List<String> _wordsTens = [
-    "", // 0 - Not used directly
-    "", // 10 - Covered by _wordsUnder30
-    "", // 20 - Covered by _wordsUnder30
-    "treinta", // 30
-    "cuarenta", // 40
-    "cincuenta", // 50
-    "sesenta", // 60
-    "setenta", // 70
-    "ochenta", // 80
-    "noventa", // 90
+    "",
+    "",
+    "",
+    "treinta",
+    "cuarenta",
+    "cincuenta",
+    "sesenta",
+    "setenta",
+    "ochenta",
+    "noventa",
   ];
 
-  /// Word forms for hundreds from 200 to 900. Indices 2-9 correspond to 200-900.
-  /// Note: 100 ("cien") and 1xx ("ciento") are handled specially.
-  /// These forms agree in gender (e.g., "doscientas" if needed, though this implementation primarily handles masculine/neutral).
+  /// Words for 200, 300, ..., 900. Index 2 = doscientos. (100 handled separately)
   static const List<String> _wordsHundreds = [
-    "", // 0 - Not used directly
-    "", // 100 - Handled by _hundredSingular / _hundredPrefix
-    "doscientos", // 200
-    "trescientos", // 300
-    "cuatrocientos", // 400
-    "quinientos", // 500
-    "seiscientos", // 600
-    "setecientos", // 700
-    "ochocientos", // 800
-    "novecientos", // 900
+    "",
+    "",
+    "doscientos",
+    "trescientos",
+    "cuatrocientos",
+    "quinientos",
+    "seiscientos",
+    "setecientos",
+    "ochocientos",
+    "novecientos",
   ];
 
-  /// Defines scale words (thousand, million, billion, etc.) using the **long scale** system.
-  /// In the long scale:
-  /// - Millón = 10^6
-  /// - Billón = 10^12 (a million million)
-  /// - Trillón = 10^18 (a million billion)
-  /// Key: Scale index (0=units, 1=thousand, 2=million, 3=billion...).
-  /// Value: List containing `[singular form, plural form]`.
+  /// Scale words (long scale system: millón=10^6, billón=10^12).
+  /// Key: Scale index (power of 1,000,000 starting from index 2).
+  /// Value: [Singular form, Plural form].
   static const Map<int, List<String>> _scaleWords = {
-    // 0: ["", ""], // Units group - no explicit scale word
-    1: [
-      "mil",
-      "mil"
-    ], // Thousands (10^3) - Singular and plural are the same here
+    // Index 0: units (no word)
+    1: ["mil", "mil"], // Thousands (10^3) - handled specially
     2: ["millón", "millones"], // Millions (10^6)
-    3: ["billón", "billones"], // Billions (10^12 - Long Scale)
-    4: ["trillón", "trillones"], // Trillions (10^18 - Long Scale)
-    5: ["cuatrillón", "cuatrillones"], // Quadrillions (10^24 - Long Scale)
-    // Further scales (quintillón, sextillón...) can be added if needed.
+    3: ["billón", "billones"], // Billions (10^12)
+    4: ["trillón", "trillones"], // Trillions (10^18)
+    5: ["cuatrillón", "cuatrillones"], // Quadrillions (10^24)
   };
 
-  // --- Core Conversion Method ---
-
   /// {@macro num2text_base_process}
-  /// Converts the given [number] into its Spanish word representation.
-  ///
-  /// Handles `int`, `double`, `BigInt`, `Decimal`, and numeric `String` inputs.
-  /// Uses [EsOptions] to customize behavior like currency formatting ([EsOptions.currency], [EsOptions.currencyInfo]),
-  /// year formatting ([Format.year]), decimal separator ([EsOptions.decimalSeparator]),
-  /// and negative prefix ([EsOptions.negativePrefix]).
-  /// If `options` is not an instance of [EsOptions], default settings are used.
-  ///
-  /// Returns the word representation (e.g., "ciento veintitrés", "menos diez con cincuenta céntimos").
-  /// If the input is invalid (`null`, `NaN`, `Infinity`, non-numeric string), it returns
-  /// [fallbackOnError] if provided, otherwise a default error message like "No es un número".
+  /// Converts [number] to Spanish words using [options].
+  /// Handles `int`, `double`, `BigInt`, `Decimal`, numeric `String`.
+  /// Returns Spanish text or [fallbackOnError] (default "No Es Un Número").
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
-    // Ensure we have Spanish-specific options, using defaults if none are provided.
     final EsOptions esOptions =
         options is EsOptions ? options : const EsOptions();
+    const String defaultError = "No Es Un Número";
 
-    // Handle special non-finite double values early.
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? "Menos Infinito" : "Infinito";
-      }
-      if (number.isNaN) {
-        return fallbackOnError ?? "No es un número"; // Not a Number
-      }
+      if (number.isNaN) return fallbackOnError ?? defaultError;
     }
 
-    // Normalize the input to a Decimal for precise calculations.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return fallbackOnError ?? defaultError;
 
-    // Return error if normalization failed (invalid input type or format).
-    if (decimalValue == null) {
-      return fallbackOnError ?? "No es un número"; // Invalid input
-    }
-
-    // Handle the specific case of zero.
     if (decimalValue == Decimal.zero) {
       if (esOptions.currency) {
-        // Currency format usually uses plural for zero amount (e.g., "cero euros").
         final String unitName = esOptions.currencyInfo.mainUnitPlural ??
-            esOptions.currencyInfo
-                .mainUnitSingular; // Fallback to singular if plural is null.
-        return "$_zero $unitName";
-      } else {
-        return _zero; // Standard "cero". Also covers the rare case of year 0.
+            esOptions.currencyInfo.mainUnitSingular;
+        return "$_zero $unitName"; // e.g., "cero euros"
       }
+      return _zero; // Standard "cero"
     }
 
     final bool isNegative = decimalValue.isNegative;
-    // Work with the absolute value for the core conversion logic.
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
-
     String textResult;
 
-    // --- Dispatch based on format options ---
     if (esOptions.format == Format.year) {
-      // Year format needs the original integer value (positive or negative).
-      // Years are treated as cardinal numbers, no "un" shortening.
+      // Year format handles negativity via BC/AD suffixes.
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), esOptions);
-      // Note: Negative sign is handled by appending BC/AD, not the standard negative prefix.
     } else {
-      // Handle currency or standard number format for the absolute value.
-      if (esOptions.currency) {
-        textResult = _handleCurrency(absValue, esOptions);
-      } else {
-        textResult = _handleStandardNumber(absValue, esOptions);
-      }
-      // Prepend the negative prefix *only* if it's a standard number or currency, not a year.
+      textResult = esOptions.currency
+          ? _handleCurrency(absValue, esOptions)
+          : _handleStandardNumber(absValue, esOptions);
       if (isNegative) {
-        textResult = "${esOptions.negativePrefix} $textResult";
+        textResult =
+            "${esOptions.negativePrefix} $textResult"; // Prepend "menos" etc.
       }
     }
-
-    return textResult;
+    return textResult.trim(); // Clean up spaces
   }
 
-  // --- Specific Format Handlers ---
-
-  /// Formats an integer as a calendar year, optionally adding BC/AD suffixes.
+  /// Converts an integer year to Spanish words, optionally adding BC/AD.
   ///
-  /// Years are converted as cardinal numbers (no "un" shortening).
-  /// [year]: The integer year value (can be negative for BC).
-  /// [options]: Spanish options, specifically checks `includeAD`.
-  /// Returns the year in words, e.g., "mil novecientos noventa y nueve", "quinientos a.C.".
+  /// Years use cardinal numbers (no "un" shortening).
+  ///
+  /// @param year The integer year (negative for BC).
+  /// @param options Checks `includeAD` option.
+  /// @return The year as Spanish words (e.g., "mil novecientos noventa y nueve").
   String _handleYearFormat(int year, EsOptions options) {
+    if (year == 0) return _zero; // Handle year 0 numerically.
+
     final bool isNegative = year < 0;
     final int absYear = isNegative ? -year : year;
 
-    // Handle year 0, although unusual in standard calendars.
-    if (absYear == 0) return _zero; // Or potentially a specific error/message?
-
-    // Convert the absolute year value. Years do not use "un" shortening.
-    // Therefore, isScaleContext is set to false.
+    // Years are read as standard numbers, no scale context needed (uses "uno", not "un").
     String yearText =
         _convertInteger(BigInt.from(absYear), isScaleContext: false);
 
-    // Append era suffixes based on the year's sign and options.
-    if (isNegative) {
-      yearText += " $_yearSuffixBC"; // Always add "a.C." for negative years.
-    } else if (options.includeAD) {
-      // Add "d.C." for positive years *only if* requested via options.
-      yearText += " $_yearSuffixAD";
-    }
+    if (isNegative)
+      yearText += " $_yearSuffixBC"; // Append "a.C."
+    else if (options.includeAD)
+      yearText += " $_yearSuffixAD"; // Append "d.C." if requested.
 
     return yearText;
   }
 
-  /// Formats a [Decimal] value as a currency amount in words.
+  /// Converts a non-negative [Decimal] to Spanish currency words.
   ///
-  /// Handles main units and subunits based on [EsOptions.currencyInfo].
-  /// Applies rounding if [EsOptions.round] is true.
-  /// Uses "un" shortening before the currency unit if applicable.
-  /// [absValue]: The non-negative currency amount.
-  /// [options]: Spanish options containing currency details and rounding preference.
-  /// Returns the currency amount in words, e.g., "un euro con cincuenta céntimos".
+  /// Uses [EsOptions.currencyInfo]. Rounds if [EsOptions.round].
+  /// Applies "un" shortening before currency units. Handles main/subunits.
+  /// If only subunits exist (e.g., 0.50), returns only the subunit part.
+  ///
+  /// @param absValue The absolute currency value.
+  /// @param options Contains currency details and flags.
+  /// @return Currency value as Spanish words (e.g., "un euro con cincuenta céntimos").
   String _handleCurrency(Decimal absValue, EsOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    // Assume 2 decimal places for subunits (e.g., cents), common for most currencies.
+    final CurrencyInfo info = options.currencyInfo;
     const int decimalPlaces = 2;
     final Decimal subunitMultiplier =
-        Decimal.ten.pow(decimalPlaces).toDecimal(); // 100
+        Decimal.ten.pow(decimalPlaces).toDecimal();
 
-    // Apply rounding to the specified decimal places if requested.
-    final Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
+    final Decimal val =
+        options.round ? absValue.round(scale: decimalPlaces) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal =
+        ((val - Decimal.fromBigInt(mainVal)) * subunitMultiplier)
+            .round(scale: 0)
+            .toBigInt();
 
-    // Separate the integer (main unit) and fractional (subunit) parts.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    // Calculate the subunit value as an integer (e.g., 0.50 becomes 50).
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).truncate().toBigInt();
-
-    // Convert the main unit integer part to words.
-    // Use scale context (true) because the number precedes the currency unit name, requiring "un" shortening if applicable.
-    final String mainText = _convertInteger(mainValue, isScaleContext: true);
-
-    // Determine the correct main unit name (singular or plural).
-    final String mainUnitName = (mainValue == BigInt.one)
-        ? currencyInfo.mainUnitSingular
-        : (currencyInfo.mainUnitPlural ??
-            currencyInfo
-                .mainUnitSingular); // Fallback to singular if plural is null
-
-    // Start building the result string with the main unit part.
-    String result = '$mainText $mainUnitName';
-
-    // Add the subunit part if it exists (value > 0) and subunit names are defined.
-    if (subunitValue > BigInt.zero && currencyInfo.subUnitSingular != null) {
-      // Convert the subunit integer part to words.
-      // Use scale context (true) as it precedes the subunit name.
-      final String subunitText =
-          _convertInteger(subunitValue, isScaleContext: true);
-
-      // Determine the correct subunit name (singular or plural).
-      final String subUnitName = (subunitValue == BigInt.one)
-          ? currencyInfo.subUnitSingular! // Not null asserted above
-          : (currencyInfo.subUnitPlural ??
-              currencyInfo.subUnitSingular!); // Fallback to singular
-
-      // Get the separator word (e.g., "con") from currency info or use the default.
-      final String separator = currencyInfo.separator ?? _currencySeparator;
-
-      // Append the separator and the subunit part.
-      result += ' $separator $subunitText $subUnitName';
+    String mainPart = '';
+    if (mainVal > BigInt.zero) {
+      // Use scale context true for potential 'un' before unit name.
+      final String mainText = _convertInteger(mainVal, isScaleContext: true);
+      final String mainUnit = (mainVal == BigInt.one)
+          ? info.mainUnitSingular
+          : (info.mainUnitPlural ?? info.mainUnitSingular);
+      mainPart = '$mainText $mainUnit';
     }
 
-    return result;
+    String subPart = '';
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      // Use scale context true for potential 'un' before subunit name.
+      final String subText = _convertInteger(subVal, isScaleContext: true);
+      final String subUnit = (subVal == BigInt.one)
+          ? info.subUnitSingular!
+          : (info.subUnitPlural ?? info.subUnitSingular!);
+      subPart = '$subText $subUnit';
+    }
+
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      final String sep = info.separator ?? _currencySeparator; // Default "con"
+      return '$mainPart $sep $subPart';
+    } else if (mainPart.isNotEmpty)
+      return mainPart;
+    else if (subPart.isNotEmpty)
+      return subPart; // Handle 0.xx case
+    else
+      return "$_zero ${info.mainUnitPlural ?? info.mainUnitSingular}"; // Zero case
   }
 
-  /// Formats a standard [Decimal] number (non-currency, non-year) into words.
+  /// Converts a non-negative standard [Decimal] number to Spanish words.
   ///
-  /// Handles both the integer and fractional parts.
-  /// The fractional part is read digit by digit after the separator word ("coma" or "punto").
-  /// Standard numbers typically do not use "un" shortening.
-  /// [absValue]: The non-negative number.
-  /// [options]: Spanish options, used for `decimalSeparator`.
-  /// Returns the number in words, e.g., "ciento veintitrés coma cuatro cinco seis".
+  /// Handles integer and fractional parts. Fractional part read digit by digit.
+  /// Standard numbers generally don't use "un" shortening.
+  ///
+  /// @param absValue The absolute decimal value.
+  /// @param options Used for `decimalSeparator`.
+  /// @return Number as Spanish words (e.g., "ciento veintitrés coma cuatro cinco").
   String _handleStandardNumber(Decimal absValue, EsOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
 
-    // Convert the integer part. Use "cero" if integer part is zero but there's a fractional part.
-    // Standard numbers usually don't need scale context (false), so "uno" is used.
-    String integerWords =
+    // Use "cero" if integer is 0 but fraction exists. No scale context (use "uno").
+    final String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
-            ? _zero // Handle cases like 0.5 -> "cero coma cinco"
+            ? _zero
             : _convertInteger(integerPart, isScaleContext: false);
 
     String fractionalWords = '';
-    // Process fractional part only if it's greater than zero.
     if (fractionalPart > Decimal.zero) {
-      // Determine the decimal separator word based on options.
-      String separatorWord;
+      String sepWord; // Determine separator word.
       switch (options.decimalSeparator) {
         case DecimalSeparator.period:
         case DecimalSeparator.point:
-          separatorWord = _point;
+          sepWord = _point;
           break;
-        case DecimalSeparator.comma:
-        default: // Default to "coma" for Spanish.
-          separatorWord = _comma;
-          break;
+        default:
+          sepWord = _comma;
+          break; // Default "coma"
       }
 
-      // Get the digits after the decimal point from the string representation.
-      // Using toString ensures we get the intended digits (e.g., "0.123" -> "123").
-      final String fractionalString = absValue.toString();
-      final int decimalPointIndex = fractionalString.indexOf('.');
-      final String fractionalDigits = (decimalPointIndex != -1)
-          ? fractionalString.substring(decimalPointIndex + 1)
-          : ''; // Should always have digits if fractionalPart > 0
-
-      // Convert each digit character to its word form.
-      final List<String> digitWords =
-          fractionalDigits.split('').map((digitChar) {
-        final int? digitInt = int.tryParse(digitChar);
-        // Map the digit to its word using _wordsUnder30.
-        return (digitInt != null && digitInt >= 0 && digitInt <= 9)
-            ? _wordsUnder30[digitInt]
-            : '?'; // Placeholder for unexpected non-digit characters
+      final String fracDigits = absValue.toString().split('.').last;
+      final List<String> digitWords = fracDigits.split('').map((d) {
+        final int? i = int.tryParse(d);
+        return (i != null && i >= 0 && i <= 9) ? _wordsUnder30[i] : '?';
       }).toList();
 
-      // Combine the separator word and the individual digit words.
-      fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+      if (digitWords.isNotEmpty) {
+        fractionalWords = ' $sepWord ${digitWords.join(' ')}';
+      }
     }
-
-    // Combine integer and fractional parts. Use trim to avoid leading/trailing spaces.
     return '$integerWords$fractionalWords'.trim();
   }
 
-  // --- Integer Conversion Helpers ---
-
-  /// Converts a non-negative [BigInt] integer into its Spanish word representation.
-  /// This is the main recursive function for handling potentially large integers.
-  /// It breaks the number down into chunks of millions and uses scale words.
+  /// Converts a number from 0 to 999,999 into Spanish words.
+  /// Helper for `_convertInteger` to handle the chunk within a million scale block.
   ///
-  /// [n]: The non-negative integer to convert. Must not be negative.
-  /// [isScaleContext]: If `true`, indicates that the number precedes a scale word
-  /// (`mil`, `millón`, etc.) or a currency unit, triggering the "un"/"veintiún" shortening.
-  /// This flag is propagated down to helper methods.
-  /// Returns the integer in words, e.g., "un millón doscientos mil trescientos cuarenta y cinco".
-  String _convertInteger(BigInt n, {required bool isScaleContext}) {
-    if (n == BigInt.zero) return _zero;
-    // Ensure input is non-negative as negative sign is handled elsewhere.
-    if (n < BigInt.zero) {
-      // This should ideally not be reached due to prior checks.
-      throw ArgumentError("Input must be non-negative for _convertInteger: $n");
-    }
-
-    // Base case: Numbers less than 1000 are handled directly.
-    if (n < BigInt.from(1000)) {
-      // Pass the scale context down.
-      return _convertChunk(n.toInt(), isScaleContext: isScaleContext);
-    }
-
-    final List<String> parts = []; // Stores word parts for each scale level.
-    BigInt remaining = n;
-    // Process the number in chunks of millions (1,000,000) to handle scale words correctly.
-    final BigInt oneMillion = BigInt.from(1000000);
-
-    // --- Process the first chunk (0 - 999,999) ---
-    // This represents the units and thousands part of the lowest million block.
-    final BigInt baseChunk = remaining % oneMillion;
-    remaining ~/= oneMillion; // Move to the millions part.
-
-    // Convert the base chunk if it's non-zero OR if it's the only part of the number.
-    if (baseChunk > BigInt.zero || n < oneMillion) {
-      // Determine if this base chunk itself needs the 'un' shortening.
-      // This happens only if:
-      // 1. The overall context requires shortening (`isScaleContext` is true).
-      // 2. This is the *last* chunk being processed (`remaining` is zero).
-      final bool chunkNeedsUn = isScaleContext && remaining == BigInt.zero;
-      parts.add(
-          _convertGroupOfThousands(baseChunk, isScaleContext: chunkNeedsUn));
-    }
-
-    // --- Process subsequent chunks (Millions, Billions, Trillions...) ---
-    int scaleIndex = 2; // Start with millions (index 2 in _scaleWords).
-    while (remaining > BigInt.zero) {
-      // Get the next chunk of up to 999,999 for the current scale level.
-      final BigInt scaleChunkValue = remaining % oneMillion;
-      remaining ~/= oneMillion; // Move to the next higher scale.
-
-      if (scaleChunkValue > BigInt.zero) {
-        // Convert the numeric part of this scale chunk.
-        // Always use scale context `true` here because this number precedes
-        // a scale word (e.g., "un millón", "doscientos mil billones").
-        final String chunkText =
-            _convertGroupOfThousands(scaleChunkValue, isScaleContext: true);
-
-        // Get the appropriate scale word (singular or plural).
-        if (_scaleWords.containsKey(scaleIndex)) {
-          final scaleNames = _scaleWords[scaleIndex]!;
-          // Use singular scale word ("millón") if chunk value is 1, plural ("millones") otherwise.
-          final String scaleWord =
-              (scaleChunkValue == BigInt.one) ? scaleNames[0] : scaleNames[1];
-          // Combine the number words and the scale word.
-          parts.add("$chunkText $scaleWord");
-        } else {
-          // Handle scales larger than explicitly defined (e.g., thousands of the previous scale).
-          // Example: 10^27 would be "mil cuatrillones" (thousand quadrillion).
-          final int prevScaleIndex = scaleIndex - 1;
-          if (_scaleWords.containsKey(prevScaleIndex)) {
-            final prevScaleNames = _scaleWords[prevScaleIndex]!;
-            // Combine with "mil" and the plural of the *previous* defined scale.
-            parts.add("$chunkText mil ${prevScaleNames[1]}");
-          } else {
-            // Safety check for extremely large numbers beyond defined scales.
-            throw ArgumentError(
-                "Number too large, scale index $scaleIndex not defined.");
-          }
-        }
-      }
-      scaleIndex++; // Increment to the next scale (billón, trillón...).
-    }
-
-    // Join the parts in reverse order (most significant scale first) with spaces.
-    return parts.reversed.join(' ').trim();
-  }
-
-  /// Converts a number between 0 and 999,999 into words.
-  /// It internally splits the number into a thousands part and a units part (0-999).
-  ///
-  /// [n]: The number to convert (must be 0 <= n < 1,000,000).
-  /// [isScaleContext]: Propagated to `_convertChunk` for the units part *only if*
-  /// the thousands part is zero. If there's a thousands part, the units part never needs 'un'.
-  /// Returns the number in words, e.g., "doscientos mil trescientos", "mil uno".
+  /// @param n The number (0-999,999).
+  /// @param isScaleContext Propagated to `_convertChunk` for potential "un" shortening.
+  /// @return The number chunk as Spanish words (e.g., "doscientos treinta mil cuatrocientos cincuenta y uno").
   String _convertGroupOfThousands(BigInt n, {required bool isScaleContext}) {
-    if (n == BigInt.zero)
-      return ""; // Empty for zero within a larger number context.
+    if (n == BigInt.zero) return "";
     if (n < BigInt.zero || n >= BigInt.from(1000000)) {
-      throw ArgumentError(
-          "Input must be between 0 and 999,999 for _convertGroupOfThousands: $n");
+      throw ArgumentError("Input must be 0-999,999: $n");
     }
 
-    // Split into thousands and the remaining units (0-999).
-    final BigInt unitsPart = n % BigInt.from(1000);
-    final BigInt thousandsPart = n ~/ BigInt.from(1000);
+    final BigInt unitsPart = n % BigInt.from(1000); // 0-999
+    final BigInt thousandsPart = n ~/ BigInt.from(1000); // 0-999
 
     String unitsText = "";
     if (unitsPart > BigInt.zero) {
-      // The units part needs 'un' shortening *only if* the overall context requires it
-      // AND there is no thousands part preceding it within this group.
-      final bool unitsNeedUn = isScaleContext && thousandsPart == BigInt.zero;
-      unitsText = _convertChunk(unitsPart.toInt(), isScaleContext: unitsNeedUn);
+      // `isScaleContext` only matters if this is the final chunk overall.
+      unitsText =
+          _convertChunk(unitsPart.toInt(), isScaleContext: isScaleContext);
     }
 
     String thousandsText = "";
     if (thousandsPart > BigInt.zero) {
       if (thousandsPart == BigInt.one) {
-        // Special case: "mil" (not "un mil").
+        // Exactly 1000 is just "mil".
         thousandsText = _thousand;
       } else {
-        // Convert the number of thousands (e.g., "doscientos" for 200,000).
-        // Always use scale context `true` because this number precedes "mil".
+        // Numbers 2000+ require the number before "mil".
+        // This preceding number *always* needs scale context for potential "un".
         final String thousandsNumText =
             _convertChunk(thousandsPart.toInt(), isScaleContext: true);
         thousandsText = "$thousandsNumText $_thousand";
       }
     }
 
-    // Combine the thousands and units parts with a space if both exist.
+    // Combine thousands and units parts.
     if (thousandsText.isNotEmpty && unitsText.isNotEmpty) {
       return "$thousandsText $unitsText";
     } else {
-      // Otherwise, return whichever part is non-empty.
       return thousandsText.isNotEmpty ? thousandsText : unitsText;
     }
   }
 
-  /// Converts a number between 0 and 999 into its Spanish word representation.
-  /// This is the lowest-level chunk conversion.
+  /// Converts a non-negative [BigInt] integer into Spanish words using the long scale.
+  /// Main recursive function, breaks number into million-based chunks.
   ///
-  /// [n]: The number to convert (must be 0 <= n < 1000).
-  /// [isScaleContext]: If `true`, 'uno' becomes 'un' and 'veintiuno' becomes 'veintiún'.
-  /// This applies if this chunk precedes `mil`, a scale word (`millón`), or a currency unit.
-  /// Returns the chunk in words, e.g., "ciento veintitrés", "noventa y nueve", "un".
-  String _convertChunk(int n, {required bool isScaleContext}) {
-    if (n == 0) return ""; // Empty string for zero in this context.
-    if (n < 0 || n >= 1000) {
-      throw ArgumentError(
-          "Input must be between 0 and 999 for _convertChunk: $n");
+  /// @param n Non-negative integer.
+  /// @param isScaleContext If true, the number precedes a scale word or currency unit, requiring "un"/"veintiún".
+  /// @return Integer as Spanish words.
+  String _convertInteger(BigInt n, {required bool isScaleContext}) {
+    if (n == BigInt.zero) return _zero;
+    if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
+    if (n < BigInt.from(1000)) {
+      return _convertChunk(n.toInt(), isScaleContext: isScaleContext);
     }
 
-    // Handle exactly 100 separately ("cien").
-    if (n == 100) return _hundredSingular;
+    final List<String> parts = [];
+    BigInt remaining = n;
+    final BigInt oneMillion = BigInt.from(1000000);
 
-    final List<String> words = []; // Stores word parts for this chunk.
+    // Process the lowest chunk (0-999,999).
+    final BigInt baseChunk = remaining % oneMillion;
+    remaining ~/= oneMillion;
+
+    if (baseChunk > BigInt.zero || n < oneMillion) {
+      // Needs 'un' shortening only if overall context requires it AND this is the last chunk.
+      final bool chunkNeedsUn = isScaleContext && remaining == BigInt.zero;
+      parts.add(
+          _convertGroupOfThousands(baseChunk, isScaleContext: chunkNeedsUn));
+    }
+
+    // Process higher scales (Millions, Billions...).
+    int scaleIndex = 2; // Start at millions.
+    while (remaining > BigInt.zero) {
+      final BigInt scaleChunkValue = remaining % oneMillion;
+      remaining ~/= oneMillion;
+
+      if (scaleChunkValue > BigInt.zero) {
+        // Number part always needs scale context true as it precedes a scale word.
+        final String chunkText =
+            _convertGroupOfThousands(scaleChunkValue, isScaleContext: true);
+
+        if (_scaleWords.containsKey(scaleIndex)) {
+          final scaleNames = _scaleWords[scaleIndex]!; // [singular, plural]
+          final String scaleWord =
+              (scaleChunkValue == BigInt.one) ? scaleNames[0] : scaleNames[1];
+          parts.add("$chunkText $scaleWord");
+        } else {
+          // Handle scales beyond defined limits (e.g., thousands of the previous scale).
+          final int prevScaleIndex = scaleIndex - 1;
+          if (_scaleWords.containsKey(prevScaleIndex)) {
+            final prevScaleNames = _scaleWords[prevScaleIndex]!;
+            // e.g., "mil cuatrillones"
+            parts.add("$chunkText mil ${prevScaleNames[1]}");
+          } else {
+            throw ArgumentError(
+                "Number too large, scale index $scaleIndex not defined.");
+          }
+        }
+      }
+      scaleIndex++; // Move to next scale (billón, trillón...).
+    }
+
+    // Join parts from highest scale down.
+    return parts.reversed.join(' ').trim();
+  }
+
+  /// Converts a number between 0 and 999 into Spanish words. Lowest level conversion.
+  /// Applies 'un'/'veintiún' shortening if `isScaleContext` is true.
+  ///
+  /// @param n The number (0-999).
+  /// @param isScaleContext If true, applies shortening ("uno" -> "un", "veintiuno" -> "veintiún").
+  /// @return The chunk as Spanish words (e.g., "ciento veintitrés", "un"). Returns "" for 0.
+  String _convertChunk(int n, {required bool isScaleContext}) {
+    if (n == 0) return "";
+    if (n < 0 || n >= 1000) throw ArgumentError("Chunk must be 0-999: $n");
+    if (n == 100) return _hundredSingular; // "cien"
+
+    final List<String> words = [];
     int remainder = n;
 
-    // --- Process Hundreds ---
+    // Hundreds part
     final int hundredsDigit = remainder ~/ 100;
     if (hundredsDigit > 0) {
-      if (hundredsDigit == 1) {
-        // Use "ciento" for 101-199.
-        words.add(_hundredPrefix);
-      } else {
-        // Use specific hundred words ("doscientos", "quinientos", etc.).
-        // Gender agreement (e.g., 'doscientas') would be added here if needed based on context.
-        words.add(_wordsHundreds[hundredsDigit]);
-      }
-      remainder %= 100; // Keep track of the remaining tens and units.
+      words.add(hundredsDigit == 1
+          ? _hundredPrefix
+          : _wordsHundreds[hundredsDigit]); // "ciento" or "doscientos"...
+      remainder %= 100;
+      if (remainder > 0) words.add(" "); // Add space if tens/units follow
     }
 
-    // --- Process Tens and Units (0-99) ---
+    // Tens and units part (0-99)
     if (remainder > 0) {
-      // Add a space if there was a hundreds part.
-      if (words.isNotEmpty) {
-        words.add(" ");
-      }
-
-      // Handle numbers less than 30 directly using the lookup table.
       if (remainder < 30) {
         String word = _wordsUnder30[remainder];
-        // Apply "un"/"veintiún" shortening if needed based on context.
-        if (remainder == 1 && isScaleContext) {
-          word = "un"; // Apocope: "uno" -> "un"
-        } else if (remainder == 21 && isScaleContext) {
-          word = "veintiún"; // Apocope: "veintiuno" -> "veintiún"
-        }
+        // Apply shortening ("apócope") if context requires it.
+        if (remainder == 1 && isScaleContext)
+          word = "un";
+        else if (remainder == 21 && isScaleContext) word = "veintiún";
         words.add(word);
       } else {
-        // Handle numbers 30-99.
+        // 30-99
         final int tensDigit = remainder ~/ 10;
         final int unitDigit = remainder % 10;
-
-        // Add the tens word (e.g., "treinta", "noventa").
-        words.add(_wordsTens[tensDigit]);
-
-        // Add the unit word if present (e.g., for 31, 45), connecting with "y".
+        words.add(_wordsTens[tensDigit]); // "treinta", "cuarenta"...
         if (unitDigit > 0) {
-          words.add(" $_and ");
+          words.add(" $_and "); // " y "
           String unitWord = _wordsUnder30[unitDigit];
-          // Apply "un" shortening if needed for the unit part (only relevant for '1').
-          if (unitDigit == 1 && isScaleContext) {
-            unitWord = "un"; // Apocope: "uno" -> "un"
-          }
+          // Apply shortening only to '1' in this range.
+          if (unitDigit == 1 && isScaleContext) unitWord = "un";
           words.add(unitWord);
         }
       }
     }
-
-    // Combine the collected word parts (hundreds, tens, units).
-    return words.join();
+    return words
+        .join(); // Join parts ("ciento", " ", "veinti", " ", "y", " ", "uno")
   }
 }

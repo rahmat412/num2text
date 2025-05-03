@@ -9,9 +9,9 @@
 /// ```
 library;
 
+export 'src/concurencies/concurencies_info.dart' show CurrencyInfo;
 export 'src/lang_enum.dart' show Lang;
 export 'src/num2text.dart' show Num2Text;
-export 'src/concurencies/concurencies_info.dart' show CurrencyInfo;
 export 'src/options/af_options.dart' show AfOptions;
 export 'src/options/am_options.dart' show AmOptions;
 export 'src/options/ar_options.dart' show ArOptions;

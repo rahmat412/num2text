@@ -7,500 +7,283 @@ import '../options/ha_options.dart';
 import '../utils/utils.dart';
 
 /// {@template num2text_ha}
-/// The Hausa language (`Lang.HA`) implementation for converting numbers to words.
+/// Converts numbers to Hausa words (`Lang.HA`).
 ///
-/// Implements the [Num2TextBase] contract, accepting various numeric inputs (`int`, `double`,
-/// `BigInt`, `Decimal`, `String`) via its `process` method. It converts these inputs
-/// into their Hausa word representation following standard Hausa grammar and vocabulary.
-///
-/// Capabilities include handling cardinal numbers, currency (using [HaOptions.currencyInfo]),
-/// year formatting ([Format.year]), negative numbers, decimals, and large numbers (short scale).
-/// Invalid inputs result in a fallback message.
-///
-/// Behavior can be customized using [HaOptions].
+/// Implements [Num2TextBase] for Hausa, handling various numeric types.
+/// Supports cardinal numbers, decimals, negatives, currency, years.
+/// Customizable via [HaOptions]. Returns a fallback string on error.
 /// {@endtemplate}
 class Num2TextHA implements Num2TextBase {
-  /// Hausa word for zero.
+  // --- Constants ---
   static const String _zero = "sifili";
-
-  /// Hausa word for the decimal separator represented by a period/point (`.`).
-  static const String _point = "digo";
-
-  /// Hausa word for the decimal separator represented by a comma (`,`).
-  static const String _comma = "waƙafi";
-
-  /// Hausa word for "and" ("da"), used as a connector.
-  static const String _and = "da";
-
-  /// Hausa word for "hundred".
+  static const String _point = "digo"; // Decimal separator '.'
+  static const String _comma = "waƙafi"; // Decimal separator ','
+  static const String _and = "da"; // Connector "and"
   static const String _hundred = "ɗari";
-
-  /// Suffix for BC years (Before Christ). Using English abbreviation as it's common.
-  static const String _yearSuffixBC = "BC";
-
-  /// Suffix for AD years (Anno Domini). Using English abbreviation as it's common.
-  static const String _yearSuffixAD = "AD";
-
-  /// Hausa representation of positive infinity.
+  static const String _yearSuffixBC = "BC"; // Common abbreviation used
+  static const String _yearSuffixAD = "AD"; // Common abbreviation used
   static const String _infinity = "Madawwami";
-
-  /// Hausa representation of negative infinity.
   static const String _negativeInfinity = "Korau Madawwami";
-
-  /// Hausa representation of "Not a Number".
   static const String _notANumber = "Ba Lamba Ba";
 
-  /// Hausa words for digits 0-9.
+  // 0-9
   static const List<String> _wordsUnder10 = [
-    "sifili", // 0
-    "ɗaya", // 1
-    "biyu", // 2
-    "uku", // 3
-    "huɗu", // 4
-    "biyar", // 5
-    "shida", // 6
-    "bakwai", // 7
-    "takwas", // 8
-    "tara", // 9
+    "sifili",
+    "ɗaya",
+    "biyu",
+    "uku",
+    "huɗu",
+    "biyar",
+    "shida",
+    "bakwai",
+    "takwas",
+    "tara",
   ];
-
-  /// Hausa words for tens (10, 20, ..., 90). Index corresponds to the tens digit (e.g., index 1 = 10).
+  // 10, 20, ..., 90
   static const List<String> _wordsTens = [
-    "", // 0 (placeholder)
-    "goma", // 10
-    "ashirin", // 20
-    "talatin", // 30
-    "arba'in", // 40
-    "hamsin", // 50
-    "sittin", // 60
-    "saba'in", // 70
-    "tamanin", // 80
-    "casa'in", // 90
+    "",
+    "goma",
+    "ashirin",
+    "talatin",
+    "arba'in",
+    "hamsin",
+    "sittin",
+    "saba'in",
+    "tamanin",
+    "casa'in",
   ];
-
-  /// Hausa words for scale numbers (thousand, million, etc.).
-  /// The key is the scale index (0 for units, 1 for 10^3, 2 for 10^6, etc.).
+  // Scale words by index (0=units, 1=thousands...)
   static const Map<int, String> _scaleWords = {
-    0: "", // Units place (no scale word)
-    1: "dubu", // Thousand (10^3)
-    2: "miliyan", // Million (10^6)
-    3: "biliyan", // Billion (10^9)
-    4: "tiriliyan", // Trillion (10^12)
-    5: "kwadiriliyan", // Quadrillion (10^15)
-    6: "kwintiliyan", // Quintillion (10^18)
-    7: "sistiliyan", // Sextillion (10^21)
-    8: "septiliyan", // Septillion (10^24)
-    // Additional scales can be added here if needed.
+    0: "",
+    1: "dubu",
+    2: "miliyan",
+    3: "biliyan",
+    4: "tiriliyan",
+    5: "kwadiriliyan",
+    6: "kwintiliyan",
+    7: "sistiliyan",
+    8: "septiliyan",
   };
 
-  /// Converts the given [number] to Hausa words based on the provided [options].
-  ///
-  /// [number] The number to convert (int, double, BigInt, String, Decimal).
-  /// [options] Hausa-specific options ([HaOptions]). If null or not `HaOptions`, defaults are used.
-  /// [fallbackOnError] Custom string to return on conversion failure. Defaults to "Ba Lamba Ba".
-  /// Returns the number in Hausa words or a fallback/error string.
+  /// {@macro num2text_base_process}
+  /// Converts the given [number] into Hausa words.
+  /// Uses [HaOptions] for customization (currency, year, decimals, AD/BC).
+  /// Returns fallback string on error (e.g., "Ba Lamba Ba").
   @override
   String process(
       dynamic number, BaseOptions? options, String? fallbackOnError) {
     final HaOptions haOptions =
         options is HaOptions ? options : const HaOptions();
+    final String errorFallback = fallbackOnError ?? _notANumber;
 
-    // Handle special double values (infinity, NaN) first.
     if (number is double) {
-      if (number.isInfinite) {
+      if (number.isInfinite)
         return number.isNegative ? _negativeInfinity : _infinity;
-      }
-      if (number.isNaN) {
-        return fallbackOnError ?? _notANumber;
-      }
+      if (number.isNaN) return errorFallback;
     }
 
-    // Normalize the input number to Decimal for consistent handling.
     final Decimal? decimalValue = Utils.normalizeNumber(number);
+    if (decimalValue == null) return errorFallback;
 
-    // Handle invalid or null input after normalization attempt.
-    if (decimalValue == null) {
-      return fallbackOnError ?? _notANumber;
-    }
-
-    // Handle zero separately, considering currency format.
     if (decimalValue == Decimal.zero) {
       if (haOptions.currency) {
-        // For currency, specify the unit even for zero amount. Use plural if available.
-        final String unitName = haOptions.currencyInfo.mainUnitPlural ??
+        final String unit = haOptions.currencyInfo.mainUnitPlural ??
             haOptions.currencyInfo.mainUnitSingular;
-        return "$unitName $_zero"; // e.g., "Naira sifili"
-      } else {
-        // Standard zero.
-        return _zero;
+        return "$unit $_zero"; // e.g., "Naira sifili"
       }
+      return _zero;
     }
 
-    // Determine sign and work with the absolute value.
     final bool isNegative = decimalValue.isNegative;
     final Decimal absValue = isNegative ? -decimalValue : decimalValue;
 
     String textResult;
-
-    // Route to specific handlers based on format options.
     if (haOptions.format == Format.year) {
-      // Year formatting handles negativity internally.
-      // Ensure year is treated as an integer.
       textResult = _handleYearFormat(
           decimalValue.truncate().toBigInt().toInt(), haOptions);
-    } else if (haOptions.currency) {
-      // Currency formatting.
-      textResult = _handleCurrency(absValue, haOptions);
     } else {
-      // Standard number formatting (integer or decimal).
-      textResult = _handleStandardNumber(absValue, haOptions);
+      textResult = haOptions.currency
+          ? _handleCurrency(absValue, haOptions)
+          : _handleStandardNumber(absValue, haOptions);
+      if (isNegative) {
+        textResult = "${haOptions.negativePrefix} $textResult";
+      }
     }
-
-    // Add negative prefix if necessary (only for non-year formats).
-    if (isNegative && haOptions.format != Format.year) {
-      textResult = "${haOptions.negativePrefix} $textResult";
-    }
-
-    // Return the final trimmed result.
-    return textResult.trim();
+    return textResult.trim().replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  /// Formats an integer [year] as Hausa words, potentially adding era suffixes (BC/AD).
-  ///
-  /// Handles the BC suffix for negative years and the AD suffix for positive years
-  /// if `options.includeAD` is true.
-  ///
-  /// Parameters:
-  ///   [year]: The integer year to format.
-  ///   [options]: The [HaOptions] containing formatting preferences like [HaOptions.includeAD].
-  ///
-  /// Returns the year in Hausa words, with BC/AD suffixes as appropriate.
+  /// Formats an integer year as Hausa words, optionally adding BC/AD.
   String _handleYearFormat(int year, HaOptions options) {
     final bool isNegative = year < 0;
-    // Convert the absolute year to words.
     final BigInt absYearBigInt = BigInt.from(year.abs());
-
-    // Handle year zero explicitly.
     if (absYearBigInt == BigInt.zero) return _zero;
 
     String yearText = _convertInteger(absYearBigInt);
 
-    // Add era suffixes based on the year's sign and options.
-    if (isNegative) {
-      yearText += " $_yearSuffixBC"; // Always add BC for negative years.
-    } else if (options.includeAD) {
-      // Only add AD for positive years if includeAD option is true.
-      yearText += " $_yearSuffixAD";
-    }
+    if (isNegative)
+      yearText += " $_yearSuffixBC";
+    else if (options.includeAD) yearText += " $_yearSuffixAD";
 
     return yearText;
   }
 
-  /// Formats a non-negative [absValue] as Hausa currency words.
-  ///
-  /// Uses the [CurrencyInfo] provided in [options] for unit names and separator.
-  /// Rounds the amount to 2 decimal places if `options.round` is true.
-  ///
-  /// Parameters:
-  ///   [absValue]: The absolute decimal value of the amount.
-  ///   [options]: The [HaOptions] containing currency info and rounding preferences.
-  ///
-  /// Returns the amount formatted as currency in Hausa words.
+  /// Formats a non-negative [Decimal] as Hausa currency words.
   String _handleCurrency(Decimal absValue, HaOptions options) {
-    final CurrencyInfo currencyInfo = options.currencyInfo;
-    final bool round = options.round;
-    const int decimalPlaces =
-        2; // Standard currency typically has 2 decimal places.
-    final Decimal subunitMultiplier = Decimal.parse("100");
+    final CurrencyInfo info = options.currencyInfo;
+    final Decimal val = options.round ? absValue.round(scale: 2) : absValue;
+    final BigInt mainVal = val.truncate().toBigInt();
+    final BigInt subVal = ((val - val.truncate()).abs() * Decimal.parse("100"))
+        .truncate()
+        .toBigInt();
 
-    // Round the value if requested, otherwise use the precise value.
-    final Decimal valueToConvert =
-        round ? absValue.round(scale: decimalPlaces) : absValue;
-
-    // Separate main unit and subunit values.
-    final BigInt mainValue = valueToConvert.truncate().toBigInt();
-    final Decimal fractionalPart = valueToConvert - valueToConvert.truncate();
-    final BigInt subunitValue =
-        (fractionalPart * subunitMultiplier).truncate().toBigInt();
-
-    // Convert main value to words.
-    final String mainText = _convertInteger(mainValue);
-    // Hausa typically uses the singular form of the currency name after the number.
-    final String mainUnitName = currencyInfo.mainUnitSingular;
-
-    String result = '$mainUnitName $mainText'; // e.g., "Naira ɗari"
-
-    // Add subunit part if it exists and a subunit name is provided.
-    if (subunitValue > BigInt.zero) {
-      final String subunitText = _convertInteger(subunitValue);
-      final String? subUnitName =
-          currencyInfo.subUnitSingular; // Get subunit name.
-      if (subUnitName != null) {
-        // Use the provided separator or default to "da".
-        final String separator = currencyInfo.separator ?? _and;
-        result +=
-            ' $separator $subUnitName $subunitText'; // e.g., "... da kobo hamsin"
-      }
-      // If subUnitName is null, the subunit part is skipped. Consider logging a warning.
+    String mainPart = "";
+    if (mainVal > BigInt.zero) {
+      String mainText = _convertInteger(mainVal);
+      String mainName =
+          info.mainUnitSingular; // Plural name not typically used before number
+      mainPart = '$mainName $mainText';
     }
 
-    return result;
+    String subPart = "";
+    if (subVal > BigInt.zero && info.subUnitSingular != null) {
+      String subText = _convertInteger(subVal);
+      String subName = info.subUnitSingular!;
+      subPart = '$subName $subText';
+    }
+
+    if (mainPart.isNotEmpty && subPart.isNotEmpty) {
+      final String sep = info.separator ?? _and;
+      return '$mainPart $sep $subPart';
+    } else if (mainPart.isNotEmpty)
+      return mainPart;
+    else if (subPart.isNotEmpty)
+      return subPart;
+    else {
+      // Zero case handled in process, but defensive return
+      final String unit = info.mainUnitPlural ?? info.mainUnitSingular;
+      return "$unit $_zero";
+    }
   }
 
-  /// Formats a non-negative standard number [absValue] (integer or decimal) into Hausa words.
-  ///
-  /// Uses the `decimalSeparator` option to choose the correct word ("digo" or "waƙafi").
-  /// Reads digits after the decimal point individually.
-  ///
-  /// Parameters:
-  ///   [absValue]: The absolute decimal value of the number.
-  ///   [options]: The [HaOptions] containing decimal separator preferences.
-  ///
-  /// Returns the number formatted in Hausa words.
+  /// Formats a non-negative standard [Decimal] number into Hausa words.
+  /// Fractional part read digit-by-digit after "digo" or "waƙafi".
   String _handleStandardNumber(Decimal absValue, HaOptions options) {
     final BigInt integerPart = absValue.truncate().toBigInt();
     final Decimal fractionalPart = absValue - absValue.truncate();
-
-    // Convert integer part to words.
-    // If the number is purely fractional (e.g., 0.5), use "sifili" for the integer part.
-    final String integerWords =
+    String integerWords =
         (integerPart == BigInt.zero && fractionalPart > Decimal.zero)
             ? _zero
             : _convertInteger(integerPart);
 
     String fractionalWords = '';
-    // Handle fractional part if it exists.
     if (fractionalPart > Decimal.zero) {
-      // Determine the separator word based on options.
-      final String separatorWord;
+      final String sepWord;
       switch (options.decimalSeparator ?? DecimalSeparator.point) {
-        case DecimalSeparator.period:
-        case DecimalSeparator.point:
-          separatorWord = _point; // "digo"
-          break;
         case DecimalSeparator.comma:
-          separatorWord = _comma; // "waƙafi"
+          sepWord = _comma;
+          break;
+        default:
+          sepWord = _point;
           break;
       }
 
-      // Extract fractional digits respecting the original scale.
-      // Use toString() which might provide more precision than naive extraction.
-      final String numberStr = absValue.toString();
-      final int decimalPointIndex = numberStr.indexOf('.');
-      String fractionalDigits = '';
-
-      if (decimalPointIndex != -1) {
-        fractionalDigits = numberStr.substring(decimalPointIndex + 1);
-        // Pad with zeros if toString() representation is shorter than the actual scale.
-        // e.g., Decimal.parse('1.50') might stringify to '1.5', but scale is 2.
-        if (fractionalDigits.length < absValue.scale) {
-          fractionalDigits = fractionalDigits.padRight(absValue.scale, '0');
-        }
-        // Trim trailing zeros for standard number representation (unlike currency).
-        fractionalDigits = fractionalDigits.replaceAll(RegExp(r'0+$'), '');
+      String digits = absValue.toString().split('.').last;
+      while (digits.endsWith('0') && digits.length > 1) {
+        // Trim trailing zeros
+        digits = digits.substring(0, digits.length - 1);
       }
 
-      // If fractional digits remain after trimming zeros, convert them.
-      if (fractionalDigits.isNotEmpty) {
-        // Convert each fractional digit to its word representation.
-        final List<String> digitWords = fractionalDigits.split('').map((digit) {
-          final int? digitInt = int.tryParse(digit);
-          // Lookup digit words (0-9).
-          return (digitInt != null &&
-                  digitInt >= 0 &&
-                  digitInt < _wordsUnder10.length)
-              ? _wordsUnder10[digitInt]
-              : '?'; // Fallback for unexpected characters.
+      if (digits.isNotEmpty) {
+        List<String> digitWords = digits.split('').map((d) {
+          final int? i = int.tryParse(d);
+          return (i != null && i >= 0 && i < _wordsUnder10.length)
+              ? _wordsUnder10[i]
+              : '?';
         }).toList();
-
-        // Combine separator and digit words.
-        fractionalWords = ' $separatorWord ${digitWords.join(' ')}';
+        fractionalWords = ' $sepWord ${digitWords.join(' ')}';
       }
-      // If fractionalDigits is empty after trimming (e.g., 123.0), fractionalWords remains empty.
     }
-
-    // Combine integer and fractional parts.
     return '$integerWords$fractionalWords'.trim();
   }
 
-  /// Converts a non-negative [BigInt] integer [n] into Hausa words.
-  ///
-  /// This is the core recursive function for handling large integers.
-  /// It breaks the number into chunks of three digits (thousands) and applies scale words.
-  /// Throws [ArgumentError] if [n] is negative or exceeds the defined scales.
-  ///
-  /// Parameters:
-  ///   [n]: The non-negative integer to convert.
-  ///
-  /// Returns the integer formatted in Hausa words.
+  /// Converts a non-negative [BigInt] into Hausa words (core logic).
+  /// Handles chunks and scale words ("dubu", "miliyan", etc.) with "da" connector.
   String _convertInteger(BigInt n) {
+    if (n == BigInt.zero) return ""; // Zero handled by callers
     if (n < BigInt.zero) throw ArgumentError("Input must be non-negative: $n");
-    if (n == BigInt.zero) return _zero;
+    if (n < BigInt.from(100)) return _convertUnder100(n.toInt());
+    if (n < BigInt.from(1000)) return _convertUnder1000(n.toInt());
 
-    // Handle numbers less than 1000 directly using helper functions.
-    if (n < BigInt.from(100)) {
-      return _convertUnder100(n.toInt());
-    }
-    if (n < BigInt.from(1000)) {
-      return _convertUnder1000(n.toInt());
-    }
-
-    final List<String> parts = []; // Stores word parts for each scale.
+    final List<String> parts = []; // Stores word parts for each scale level
     final BigInt oneThousand = BigInt.from(1000);
-    int scaleIndex = 0; // 0: units, 1: thousands, 2: millions, etc.
-    BigInt remaining = n; // Number part yet to be processed.
+    int scaleIndex = 0;
+    BigInt remaining = n;
 
-    // Process the number in chunks of 1000 from right to left.
+    // Decompose into scale groups (units, thousands, millions...)
     while (remaining > BigInt.zero) {
-      // Check if the scale index is supported.
-      if (!_scaleWords.containsKey(scaleIndex)) {
-        throw ArgumentError(
-            "Number too large, scale index $scaleIndex not defined.");
-      }
-
-      // Get the current chunk (0-999).
+      if (!_scaleWords.containsKey(scaleIndex))
+        throw ArgumentError("Number too large");
       final int chunk = (remaining % oneThousand).toInt();
-      remaining ~/= oneThousand; // Move to the next chunk.
+      remaining ~/= oneThousand;
 
-      // If the chunk is non-zero, convert it and add to parts.
       if (chunk > 0) {
         String chunkText;
-        // Special handling for '1' in scale positions.
-        if (chunk == 1 && scaleIndex == 1) {
-          // 1000: Use only the scale word "dubu" later.
-          chunkText = "";
-        } else if (chunk == 1 && scaleIndex >= 2) {
-          // 1 million, 1 billion, etc.: Use "ɗaya" for the chunk.
-          chunkText = _wordsUnder10[1];
-        } else {
-          // Convert the chunk (2-999) to words normally.
+        // Handle "dubu" (1000) vs "dubu [chunk]"
+        if (scaleIndex == 1 && chunk == 1)
+          chunkText = _scaleWords[1]!; // Just "dubu"
+        else if (scaleIndex > 0 && chunk == 1)
+          chunkText =
+              "${_scaleWords[scaleIndex]!} ${_wordsUnder10[1]}"; // e.g. "miliyan ɗaya"
+        else {
           chunkText =
               chunk < 100 ? _convertUnder100(chunk) : _convertUnder1000(chunk);
+          if (scaleIndex > 0)
+            chunkText =
+                "${_scaleWords[scaleIndex]!} $chunkText"; // Prepend scale word
         }
-
-        // Get the scale word (e.g., "dubu", "miliyan").
-        final String scaleWord = _scaleWords[scaleIndex]!;
-
-        // Combine chunk text and scale word based on scale index.
-        if (scaleIndex > 0) {
-          // Scale words (thousand, million...).
-          if (scaleIndex == 1) {
-            // Thousands.
-            if (chunk == 1) {
-              parts.add(scaleWord); // Just "dubu".
-            } else {
-              parts.add("$scaleWord $chunkText"); // e.g., "dubu biyu".
-            }
-          } else {
-            // Millions and higher. Always include scale word and chunk text.
-            parts.add("$scaleWord $chunkText"); // e.g., "miliyan ɗaya".
-          }
-        } else {
-          // Base units chunk (0-999).
-          parts.add(chunkText);
-        }
+        parts.add(chunkText);
       }
-      scaleIndex++; // Move to the next scale level.
+      scaleIndex++;
     }
 
-    // Combine the collected parts in the correct order (reversed) with appropriate connectors.
-    final List<String> resultParts = parts.reversed.toList();
+    // Combine parts from largest scale down, inserting "da" before the last part.
     final StringBuffer buffer = StringBuffer();
-    for (int i = 0; i < resultParts.length; i++) {
-      final String currentPart = resultParts[i];
-      if (currentPart.isEmpty)
-        continue; // Skip empty parts (like chunk '1' for 1000).
-
-      buffer.write(currentPart);
-
-      final bool isLastPart = i == resultParts.length - 1;
-      if (!isLastPart) {
-        // Determine if 'da' connector is needed before the final 0-999 chunk.
-        final bool needsAndConnector = (n >=
-                oneThousand) && // Original number was >= 1000.
-            (n % oneThousand >
-                BigInt.zero) && // The last 0-999 chunk is non-zero.
-            (i ==
-                resultParts.length -
-                    2); // Currently processing the scale part just before the last chunk.
-
-        buffer.write(
-            needsAndConnector ? ' $_and ' : ' '); // Use 'da' or just a space.
+    for (int i = parts.length - 1; i >= 0; i--) {
+      buffer.write(parts[i]);
+      if (i > 0) {
+        // Add "da" connector before the last part (unless it's the only part).
+        buffer.write(i == 1 ? ' $_and ' : ' ');
       }
     }
-    // Clean up potential double spaces and trim.
-    return buffer.toString().replaceAll('  ', ' ').trim();
+    return buffer.toString().trim();
   }
 
-  /// Converts an integer [n] between 0 and 99 into Hausa words.
-  ///
-  /// Handles the special "sha" connector for teens (11-19) and
-  /// the "da" connector for other tens + units combinations.
-  ///
-  /// Throws [ArgumentError] if [n] is out of the 0-99 range.
-  ///
-  /// Parameters:
-  ///   [n]: The integer between 0 and 99 to convert.
-  ///
-  /// Returns the number formatted in Hausa words, or an empty string for 0.
+  /// Converts an integer 0-99 into Hausa words.
+  /// Handles teens ("sha") and tens+units ("da").
   String _convertUnder100(int n) {
     if (n < 0 || n >= 100) throw ArgumentError("Number must be 0-99: $n");
-    // Zero part is handled by callers, return empty here to avoid "da sifili".
     if (n == 0) return "";
-    if (n < 10) return _wordsUnder10[n]; // 1-9.
+    if (n < 10) return _wordsUnder10[n];
 
-    final int tensDigit = n ~/ 10;
-    final int unitDigit = n % 10;
+    final int tens = n ~/ 10;
+    final int unit = n % 10;
 
-    // Handle teens (11-19) using "sha".
-    if (tensDigit == 1 && unitDigit > 0) {
-      // e.g., "goma sha ɗaya" (11).
-      return "${_wordsTens[1]} sha ${_wordsUnder10[unitDigit]}";
-    }
-
-    // Handle exact tens (10, 20, ..., 90).
-    final String tensWord = _wordsTens[tensDigit];
-    if (unitDigit == 0) {
-      return tensWord;
-    } else {
-      // Handle other numbers (21-99 excluding multiples of 10) using "da".
-      // e.g., "ashirin da ɗaya" (21).
-      return "$tensWord $_and ${_wordsUnder10[unitDigit]}";
-    }
+    if (tens == 1 && unit > 0)
+      return "${_wordsTens[1]} sha ${_wordsUnder10[unit]}"; // e.g., goma sha ɗaya
+    if (unit == 0) return _wordsTens[tens]; // e.g., ashirin
+    return "${_wordsTens[tens]} $_and ${_wordsUnder10[unit]}"; // e.g., ashirin da ɗaya
   }
 
-  /// Converts an integer [n] between 100 and 999 into Hausa words.
-  ///
-  /// Handles "ɗari" (100) and multiples, connecting with "da" for the remainder.
-  ///
-  /// Throws [ArgumentError] if [n] is out of the 100-999 range.
-  ///
-  /// Parameters:
-  ///   [n]: The integer between 100 and 999 to convert.
-  ///
-  /// Returns the number formatted in Hausa words.
+  /// Converts an integer 100-999 into Hausa words.
+  /// Handles "ɗari" and multiples, connecting with "da".
   String _convertUnder1000(int n) {
     if (n < 100 || n >= 1000) throw ArgumentError("Number must be 100-999: $n");
+    final int hundreds = n ~/ 100;
+    final int rem = n % 100;
+    final String hundredsText =
+        (hundreds == 1) ? _hundred : "$_hundred ${_wordsUnder10[hundreds]}";
 
-    final int hundredsDigit = n ~/ 100;
-    final int remainder = n % 100; // Part 0-99.
-
-    // Construct the hundreds part.
-    final String hundredsText;
-    if (hundredsDigit == 1) {
-      hundredsText = _hundred; // "ɗari".
-    } else {
-      // e.g., "ɗari biyu" (200).
-      hundredsText = "$_hundred ${_wordsUnder10[hundredsDigit]}";
-    }
-
-    // Combine with the remainder (0-99) if it exists.
-    if (remainder == 0) {
-      return hundredsText; // e.g., "ɗari", "ɗari biyu".
-    } else {
-      final String remainderText = _convertUnder100(remainder);
-      // e.g., "ɗari da ɗaya" (101).
-      return "$hundredsText $_and $remainderText";
-    }
+    if (rem == 0) return hundredsText;
+    return "$hundredsText $_and ${_convertUnder100(rem)}";
   }
 }
