@@ -85,12 +85,16 @@ void main() {
       expect(converter.convert(1110), equals("một nghìn một trăm mười"));
       expect(converter.convert(1111), equals("một nghìn một trăm mười một"));
       expect(converter.convert(2000), equals("hai nghìn"));
+      expect(converter.convert(2001), equals("hai nghìn không trăm linh một"));
+      expect(converter.convert(2010), equals("hai nghìn không trăm mười"));
       expect(
           converter.convert(2468), equals("hai nghìn bốn trăm sáu mươi tám"));
       expect(
           converter.convert(3579), equals("ba nghìn năm trăm bảy mươi chín"));
       expect(converter.convert(5000), equals("năm nghìn"));
       expect(converter.convert(10000), equals("mười nghìn"));
+      expect(
+          converter.convert(10001), equals("mười nghìn không trăm linh một"));
       expect(
           converter.convert(10011), equals("mười nghìn không trăm mười một"));
       expect(converter.convert(11100), equals("mười một nghìn một trăm"));
@@ -156,6 +160,9 @@ void main() {
           equals("một nghìn chín trăm"));
       expect(converter.convert(1999, options: yearOption),
           equals("một nghìn chín trăm chín mươi chín"));
+      expect(converter.convert(2000, options: yearOption), equals("hai nghìn"));
+      expect(converter.convert(2001, options: yearOption),
+          equals("hai nghìn không trăm linh một"));
       expect(converter.convert(2024, options: yearOption),
           equals("hai nghìn không trăm hai mươi tư"));
       expect(converter.convert(2025, options: yearOption),
@@ -217,19 +224,19 @@ void main() {
       expect(converter.convert(BigInt.from(7) * BigInt.from(10).pow(24)),
           equals("bảy triệu tỷ tỷ"));
       expect(converter.convert(BigInt.parse('1000002000003')),
-          equals('một nghìn tỷ linh hai triệu linh ba'));
+          equals('một nghìn tỷ không trăm linh hai triệu không trăm linh ba'));
       expect(converter.convert(BigInt.parse('5001000')),
-          equals("năm triệu một nghìn"));
+          equals("năm triệu không trăm linh một nghìn"));
       expect(converter.convert(BigInt.parse('1000000001')),
-          equals("một tỷ linh một"));
+          equals("một tỷ không trăm linh một"));
       expect(converter.convert(BigInt.parse('1001000000')),
-          equals("một tỷ một triệu"));
+          equals("một tỷ không trăm linh một triệu"));
       expect(converter.convert(BigInt.parse('2001000')),
-          equals("hai triệu một nghìn"));
+          equals("hai triệu không trăm linh một nghìn"));
       expect(
           converter.convert(BigInt.parse('1000987600003')),
           equals(
-              "một nghìn tỷ linh chín trăm tám mươi bảy triệu sáu trăm nghìn không trăm linh ba"));
+              "một nghìn tỷ chín trăm tám mươi bảy triệu sáu trăm nghìn không trăm linh ba"));
       expect(
           converter.convert(BigInt.parse('9876543210123456789')),
           equals(
@@ -245,19 +252,23 @@ void main() {
     });
 
     test('Edge Cases with Linh/Lẻ', () {
-      expect(converter.convert(1000001), equals("một triệu linh một"));
-      expect(converter.convert(1001000), equals("một triệu một nghìn"));
+      expect(
+          converter.convert(1000001), equals("một triệu không trăm linh một"));
+      expect(converter.convert(1001000),
+          equals("một triệu không trăm linh một nghìn"));
       expect(converter.convert(1001001),
-          equals("một triệu một nghìn không trăm linh một"));
-      expect(converter.convert(1000000001), equals("một tỷ linh một"));
-      expect(converter.convert(1000001000), equals("một tỷ linh một nghìn"));
+          equals("một triệu không trăm linh một nghìn không trăm linh một"));
+      expect(
+          converter.convert(1000000001), equals("một tỷ không trăm linh một"));
+      expect(converter.convert(1000001000),
+          equals("một tỷ không trăm linh một nghìn"));
       const leOptions = ViOptions(useLe: true);
       expect(converter.convert(1000001, options: leOptions),
-          equals("một triệu lẻ một"));
+          equals("một triệu không trăm lẻ một"));
       expect(converter.convert(1001001, options: leOptions),
-          equals("một triệu một nghìn không trăm lẻ một"));
+          equals("một triệu không trăm lẻ một nghìn không trăm lẻ một"));
       expect(converter.convert(1000000001, options: leOptions),
-          equals("một tỷ lẻ một"));
+          equals("một tỷ không trăm lẻ một"));
     });
 
     test('Infinity And Invalid Input', () {

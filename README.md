@@ -1,4 +1,4 @@
-# Num2Text 0.0.3
+# Num2Text 0.0.4
 
 [![pub package](https://img.shields.io/pub/v/num2text.svg)](https://pub.dev/packages/num2text)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

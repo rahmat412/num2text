@@ -1,3 +1,8 @@
+## 0.0.4
+
+- **fix(vi):** Corrected the implementation of the "linh"/"lẻ" rule for Vietnamese (`Lang.VI`) to accurately handle the "không trăm linh/lẻ" padding for chunks less than 100 following higher scale words (e.g., `1001` is now correctly "một nghìn không trăm linh một"). Aligned logic with strict grammatical rules based on reference examples.
+- **test(vi):** Updated Vietnamese test expectations to reflect the strict "không trăm linh/lẻ" rule, resolving previous inconsistencies caused by simplification assumptions.
+
 ## 0.0.3
 
 - **Enhanced core conversion logic, resulting in improved output accuracy for many numbers and languages.**
