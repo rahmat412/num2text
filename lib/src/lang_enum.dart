@@ -11,6 +11,9 @@ enum Lang {
   /// English (e.g., USD, GBP, AUD, CAD, EUR, INR)
   EN,
 
+  /// Estonian (e.g., EUR)
+  ET,
+
   /// Vietnamese (e.g., VND)
   VI,
 

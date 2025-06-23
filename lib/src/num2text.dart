@@ -108,6 +108,7 @@ class Num2Text {
     _converters[Lang.EL] = Num2TextEL();
     _converters[Lang.EN] = Num2TextEN();
     _converters[Lang.ES] = Num2TextES();
+    _converters[Lang.ET] = Num2TextET();
     _converters[Lang.FA] = Num2TextFA();
     _converters[Lang.FI] = Num2TextFI();
     _converters[Lang.FIL] = Num2TextFIL();
