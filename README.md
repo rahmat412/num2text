@@ -5,11 +5,11 @@
 
 Dart library for converting numbers (integers, doubles, BigInt, Decimal, Numeric String) into their word representations (cardinal form) across a wide range of languages.
 
-**Currently supports up to 69 languages!**
+**Currently supports up to 70 languages!**
 
 ## Features
 
-- **Multi-Language Support:** Convert numbers to words in 69 languages (see list below).
+- **Multi-Language Support:** Convert numbers to words in 70 languages (see list below).
 - **Flexible Input:** Handles `int`, `double`, `BigInt`, `String` (if parsable), and `Decimal` types.
 - **Large Numbers:** Handles large integer parts up to **24 digits** (up to sextillions in the English short scale). Support may vary slightly by language implementation.
 - **Rich Formatting Options:**
@@ -113,7 +113,7 @@ print(num2text(5, options: PlOptions(currency: true)));
 
 ## Supported Languages
 
-The library currently supports the following 69 languages. Each language has specific options available (e.g., `EnOptions`, `ViOptions`) and is tested individually. For complete usage examples of a specific language, including all options, please check the corresponding test file listed in the table.
+The library currently supports the following 70 languages. Each language has specific options available (e.g., `EnOptions`, `ViOptions`) and is tested individually. For complete usage examples of a specific language, including all options, please check the corresponding test file listed in the table.
 
 | Language        | Enum Value (`Lang.XX`) | Test File Location             |
 | :-------------- | :--------------------- | :----------------------------- |
